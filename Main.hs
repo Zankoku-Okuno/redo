@@ -11,10 +11,10 @@ import Distribution.Redo.Util
 import Distribution.Redo.Monad
 
 -- FIXME eliminate magic strings
+-- FIXME if a file was empty and then deleted, that isn't counting as a change
 
--- TODO respond to dependencies
--- TODO research multi-process threading
 -- TODO log what is happening
+-- TODO research multi-process threading
 
 
 
@@ -22,8 +22,12 @@ main :: IO ()
 main = do
     cmd <- fromMaybe "always" . stripPrefix "redo-" <$> getProgName
     case cmd of
-        --TODO redo-init
-        --TODO redo-clean
+        "init" -> do
+            createDirectory ".redo"
+            writeFile ".redo/interpreter.conf" "sh"
+            writeFile ".redo/interpreter-args.conf" "-xe"
+            runRedo mkSkeleton =<< mkVars ""
+        "clean" -> runRedo cleanSkeleton =<< mkVars ""
         "always" -> do
             results <- mapM (`redoCheck` redoAlways) =<< getArgs
             when (or $ isBadResult <$> results) exitFailure
