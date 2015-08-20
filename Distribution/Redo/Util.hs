@@ -17,6 +17,7 @@ import Data.List as X
 
 import Control.Applicative as X
 import Control.Monad as X
+import Control.Monad.Reader as X
 
 import System.IO (stderr, hPutStrLn)
 import System.Directory (doesFileExist, removeFile)

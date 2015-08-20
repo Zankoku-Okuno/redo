@@ -9,7 +9,6 @@ import System.Exit
 
 import Distribution.Redo.Util
 import Distribution.Redo.Monad
-import Distribution.Redo.Concepts
 
 -- FIXME eliminate magic strings
 
@@ -48,27 +47,24 @@ redoIfChange :: Redo Bool
 redoIfChange = isUpToDate =<< asks _target
 
 isUpToDate :: TargetPath -> Redo Bool
-isUpToDate target = do
-    utd <- liftIO . doesFileExist =<< mkUTDFile target
-    failed <- liftIO . doesFileExist =<< mkFailFile target
-    result <- case (utd, failed) of
-        (True, _) -> do
-                        debug $ "--- ifchange " ++ show target
-                        debug "--- utd file found"
-                        return True
-        (_, True) -> do
-                        debug $ "--- ifchange " ++ show target
-                        debug "--- fail file found"
-                        return False
-        _ -> do
-            changeDetected <- checkForChanges target
-            debug $ "--- ifchange " ++ show target
-            debug $ "--- change detected? " ++ show changeDetected
-            case changeDetected of
-                True -> return False
-                False -> and <$> (mapM isUpToDate =<< getDeps target)
-    when result $ recordUpToDate target
-    return result
+isUpToDate target = status target >>= \case
+    UpToDate -> do
+        debug $ "--- ifchange " ++ show target
+        debug "--- utd file found"
+        return True
+    Failed -> do
+        debug $ "--- ifchange " ++ show target
+        debug "--- fail file found"
+        return False
+    Uncomputed -> do
+        changeDetected <- checkForChanges target
+        debug $ "--- ifchange " ++ show target
+        debug $ "--- change detected? " ++ show changeDetected
+        result <- case changeDetected of
+            True -> return False
+            False -> and <$> (mapM isUpToDate =<< getDeps target)
+        when result $ recordUpToDate target
+        return result
 
 
 redoCheck :: FilePath -> Redo Bool -> IO Result
@@ -82,22 +78,26 @@ redoCheck pretarget isUpToDate = do
             depth <- asks _depth
             when (depth == 0) mkSkeleton
         result <- isUpToDate >>= \case
+            True -> do
+                debug "=== up-to-date"
+                return Skip
             False -> do
                 debug "=== not up-to-date"
                 clearDeps target
-                scripts <- redoScripts
+                scripts <- findScript target
                 (target `addDep`) `mapM` (ScriptDep <$> _missing scripts)
                 case _found scripts of
                     Nothing -> do
                         debug "=== source file"
-                        doSourceFile
+                        doesTargetExist target >>= \case
+                            True -> return Skip
+                            False -> return . Bad $ "cannot find either source file or build script"
                     Just script -> do
                         target `addDep` ScriptDep script
                         debug "=== running script"
-                        Run <$> doTargetFile script (_targetBasePath scripts)
-            True -> do
-                debug "=== up-to-date"
-                return Skip
+                        (Run <$>) $ mkProcess script (_targetBasePath scripts) $ \process -> do
+                            (_, _, _, ph) <- liftIO $ createProcess process
+                            liftIO $ waitForProcess ph
         case result of
             Run ExitSuccess -> do
                 debug $ "=== updated " ++ show pretarget
@@ -114,25 +114,6 @@ redoCheck pretarget isUpToDate = do
             Just parent -> parent `addDep` TargetDep target
         return result
 
-doSourceFile :: Redo Result
-doSourceFile = sourceIsValid >>= \case
-    True -> return Skip
-    False -> return . Bad $ "cannot find either source file or build script"
 
-doTargetFile :: ScriptPath -> Maybe TargetBasePath -> Redo ExitCode
-doTargetFile script targetBasePath = withTmpFile $ \tmpfile tmpfp -> do
-    env' <- mkScriptEnv
-    userargs <- asks _shArgs
-    let redoargs = mkScriptArgs script targetBasePath tmpfile
-    let args = userargs ++ redoargs
-    cwd' <- mkScriptCwd
-    interpreter <- asks _sh
-    let cmd = proc interpreter args
-        process = cmd { std_out = UseHandle tmpfp
-                      , env = Just env'
-                      , cwd = Just cwd'
-                      }
-    -- Run Process
-    (_, _, _, ph) <- liftIO $ createProcess process
-    liftIO $ waitForProcess ph
+
 

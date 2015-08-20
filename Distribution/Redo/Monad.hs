@@ -1,39 +1,27 @@
 {-# LANGUAGE LambdaCase, ViewPatterns, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
 module Distribution.Redo.Monad (
-      module X
+      Redo, runRedo
+    , Vars(..), mkVars
+    , Scripts(..), findScript, ScriptPath, TargetBasePath
+    , Result(..), mkProcess
 
-    , Result(..)
-    , Redo, runRedo
-    , Vars(..)
-    , Scripts(..)
+    , ProjDir, lookupProjDir, mkSkeleton, cleanSkeleton
+    , TargetPath, targetPath, parentPath, doesTargetExist
 
-    --FIXME do not export constructors
-    , ProjDir, TargetPath, ScriptPath, TargetBasePath, TmpPath
+    , Status(..), status
     , DepPath(..)
-
-    , targetPath, parentPath, lookupProjDir, redoDepth, interpreter
-    
-    , mkSkeleton, cleanSkeleton
-
     , getDeps, addDep, clearDeps
-    , recordChange, recordUpToDate, recordBuildFailure
     , checkForChanges
+    , recordChange, recordUpToDate, recordBuildFailure
 
-    , findScript
-
-    , withTmpFile
-    , mkScriptArgs, mkScriptEnv, mkScriptCwd
-
-    , doesTargetExist
-    
-    , mkHashFile, mkDepsFile, mkUTDFile, mkFailFile
+    , debug
     ) where
 
 import Distribution.Redo.Util
 import Distribution.Redo.Hash
 
 import Control.Monad.Trans
-import Control.Monad.Reader as X
+import Control.Monad.Reader
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -42,10 +30,10 @@ import System.IO
 import System.Environment
 import System.Directory
 import System.FilePath
+import System.Process
 import System.Exit as X
 
 
-data Result = Skip | Run ExitCode | Bad String
 
 newtype Redo a = Redo { unRedo :: ReaderT Vars IO a }
     deriving(Functor, Applicative, Monad, MonadIO)
@@ -57,7 +45,6 @@ instance MonadReader Vars Redo where
 runRedo :: Redo a -> Vars -> IO a
 runRedo action vars = flip runReaderT vars $ unRedo action
 
-
 data Vars = Vars {
       _target :: TargetPath
     , _parent :: Maybe TargetPath
@@ -67,36 +54,94 @@ data Vars = Vars {
     , _shArgs :: [String]
     }
 
+mkVars :: FilePath -> IO Vars
+mkVars filepath = do
+    target <- targetPath filepath
+    parent <- parentPath
+    projDir <- lookupProjDir >>= \case
+        Nothing -> die "cannot find redo project"
+        Just it -> return it
+    env <- getEnvironment
+    let depth = fromMaybe 0 $ read <$> lookup "REDODEPTH" env
+    (sh, shArgs) <- interpreterConfig projDir
+    -- package it up
+    return Vars {
+          _target = target
+        , _projDir = projDir
+        , _sh = sh
+        , _shArgs = shArgs
+        , _depth = depth
+        , _parent = parent
+    }
+
 data Scripts = Scripts {
       _missing :: [ScriptPath]
     , _found :: Maybe ScriptPath
     , _targetBasePath :: Maybe TargetBasePath
     }
-
-
-newtype TargetPath = TargetPath FilePath
-newtype ProjDir = ProjDir FilePath
 newtype ScriptPath = ScriptPath FilePath
 newtype TargetBasePath = TargetBasePath FilePath
-newtype TmpPath = TmpPath FilePath
-data DepPath = TargetDep TargetPath
-             | ScriptDep ScriptPath
 
-instance Show TargetPath where
-    show (TargetPath target) = show target
+findScript :: TargetPath -> Redo Scripts
+findScript (TargetPath target) = liftIO $ do
+    (map fst -> missing, other) <- breakM (\(ScriptPath sp, _) -> doesFileExist sp) scriptCandidates
+    return $ uncurry (Scripts missing) $ justPair (listToMaybe other)
+    where
+    justPair (Just (a, b)) = (Just a, Just b)
+    justPair Nothing = (Nothing, Nothing)
+    scriptCandidates :: [(ScriptPath, TargetBasePath)]
+    scriptCandidates = map wrap candidates
+        where
+        wrap (tbp, sp) = (ScriptPath sp,TargetBasePath tbp)
+        candidates = map (apPair (dirpath </>)) $ specificName : defaultNames
+        specificName = (takeBaseName filename, filename ++ ".do")
+        defaultNames = map (apSnd mkDefault) $ breakExts filename
+        mkDefault ext = "default" ++ ext ++ ".do"
+        (dirpath, filename) = splitFileName target
 
 
-targetPath :: FilePath -> IO TargetPath
-targetPath target = do
-    abspath <- makeAbsolute target
-    let (absdir, absname) = splitFileName abspath
-    cannonPath <- canonicalizePath absdir --FIXME this will fail if the directry doesn't exist, which is probably good, but I need a better diagnostic
-    return $ TargetPath $ cannonPath </> absname
+data Result = Skip | Run ExitCode | Bad String
 
-parentPath :: IO (Maybe TargetPath)
-parentPath = do
-    env <- getEnvironment
-    return $ TargetPath <$> lookup "REDOPARENT" env
+mkProcess :: ScriptPath -> Maybe TargetBasePath
+          -> (CreateProcess -> Redo ExitCode)
+          -> Redo ExitCode
+mkProcess (ScriptPath script) targetBasePath_m action =
+    withTmpFile $ \tmpfile tmpfp -> do
+        TargetPath target <- asks _target
+        let targetBasePath =
+                case targetBasePath_m of
+                    Just (TargetBasePath it) -> it
+                    Nothing -> ""
+        env' <- do
+            depth <- asks _depth 
+            env0 <- liftIO getEnvironment
+            return $ assocUpdate ("REDODEPTH", show $ depth + 1)
+                   $ assocUpdate ("REDOPARENT", target)
+                     env0
+        interpreter <- asks _sh
+        userargs <- asks _shArgs
+        --TODO add $1 argument
+        let cmd = proc interpreter $ userargs ++ [script, "", targetBasePath, tmpfile]
+            process = cmd { std_out = UseHandle tmpfp
+                          , env = Just env'
+                          , cwd = Just $ takeDirectory target
+                          }
+        action process
+    where
+    withTmpFile :: (FilePath -> Handle -> Redo ExitCode) -> Redo ExitCode
+    withTmpFile action = do
+        (tmpfile, tmpfp) <- liftIO $ openTempFile "/tmp" "redo-.stdout"
+        exitCode <- action tmpfile tmpfp
+        (TargetPath target) <- asks _target
+        liftIO $ do
+            hClose tmpfp
+            if exitCode == ExitSuccess
+                then renameFile tmpfile target
+                else removeFile tmpfile
+        return exitCode
+
+
+newtype ProjDir = ProjDir FilePath
 
 lookupProjDir :: IO (Maybe ProjDir)
 lookupProjDir = do
@@ -114,132 +159,6 @@ lookupProjDir = do
         return $ listToMaybe found_m
         where
         onPathSegments f = map joinPath . f . splitPath
-
-redoDepth :: IO Int
-redoDepth = do
-    env <- getEnvironment
-    return $ fromMaybe 0 $ read <$> lookup "REDODEPTH" env
-
-interpreter :: ProjDir -> IO (String, [String])
-interpreter (ProjDir projDir) = do
-    let shFile = projDir </> "interpreter.conf"
-        argsFile = projDir </> "interpreter-args.conf"
-    shFileExists <- doesFileExist shFile
-    argsFileExists <- doesFileExist argsFile
-    case (shFileExists, argsFileExists) of
-        (True, True) -> do
-            sh <- filter (/= '\n') <$> readFile shFile
-            args <- lines <$> readFile argsFile
-            return (sh, args)
-        (True, False) -> do
-            sh <- filter (/= '\n') <$> readFile shFile
-            return (sh, [])
-        (False, _) -> die "no interpreter"
-
-
-recordChange :: TargetPath -> Redo ()
-recordChange (TargetPath target) = do
-    hashFile <- mkHashFile (TargetPath target)
-    liftIO $ writeHashFile hashFile =<< hashContents target
-
-recordUpToDate :: TargetPath -> Redo ()
-recordUpToDate target = do
-    liftIO . removeFileIfExists =<< mkFailFile target
-    exists <- liftIO $ doesTargetExist target
-    when exists $ do
-        liftIO . flip writeFile "" =<< mkUTDFile target
-
-recordBuildFailure :: TargetPath -> Redo ()
-recordBuildFailure (TargetPath target) = do
-    liftIO . removeFileIfExists =<< mkUTDFile (TargetPath target)
-    liftIO . flip writeFile "" =<< mkFailFile (TargetPath target)
-
-
-
-
-
-
-
-
-
-doesTargetExist :: TargetPath -> IO Bool
-doesTargetExist (TargetPath target) = doesFileExist target
-
-findScript :: TargetPath -> IO Scripts
-findScript (TargetPath target) = do
-    (map fst -> missing, other) <- breakM (\(ScriptPath sp, _) -> doesFileExist sp) scriptCandidates
-    return $ uncurry (Scripts missing) $ justPair (listToMaybe other)
-    where
-    justPair (Just (a, b)) = (Just a, Just b)
-    justPair Nothing = (Nothing, Nothing)
-    scriptCandidates :: [(ScriptPath, TargetBasePath)]
-    scriptCandidates = map wrap candidates
-        where
-        wrap (tbp, sp) = (ScriptPath sp,TargetBasePath tbp)
-        candidates = map (apPair (dirpath </>)) $ specificName : defaultNames
-        specificName = (takeBaseName filename, filename ++ ".do")
-        defaultNames = map (apSnd mkDefault) $ breakExts filename
-        mkDefault ext = "default" ++ ext ++ ".do"
-        (dirpath, filename) = splitFileName target
-
-mkScriptArgs :: ScriptPath -> Maybe TargetBasePath -> TmpPath -> [String]
-mkScriptArgs (ScriptPath script) targetBasePath_m (TmpPath tmpfile) = 
-    let (TargetBasePath targetBasePath) = fromMaybe (TargetBasePath "") targetBasePath_m
-    in  [script, "", targetBasePath, tmpfile]
-        --TODO add $1 argument
-
-mkScriptEnv :: Redo [(String, String)]
-mkScriptEnv = do
-    (TargetPath target) <- asks _target
-    depth <- asks _depth 
-    env0 <- liftIO getEnvironment
-    let env' = assocUpdate ("REDODEPTH", show $ depth + 1)
-             $ assocUpdate ("REDOPARENT", target)
-               env0
-    return env'
-
-mkScriptCwd :: Redo FilePath
-mkScriptCwd = do
-    TargetPath target <- asks _target
-    return $ takeDirectory target
-
-withTmpFile :: (TmpPath -> Handle -> Redo ExitCode) -> Redo ExitCode
-withTmpFile action = do
-    (pretmpfile, tmpfp) <- liftIO $ openTempFile "/tmp" "redo-.stdout"
-    let tmpfile = TmpPath pretmpfile
-    exitCode <- action tmpfile tmpfp
-    (TargetPath target) <- asks _target
-    liftIO $ do
-        hClose tmpfp
-        if exitCode == ExitSuccess
-            then renameFile pretmpfile target
-            else removeFile pretmpfile
-    return exitCode
-
-
-
-getDeps :: TargetPath -> Redo [TargetPath]
-getDeps target = do
-    depsFile <- mkDepsFile target
-    exists <- liftIO $ doesFileExist depsFile
-    liftIO $ if exists then map TargetPath . lines <$> readFile depsFile else return []
-
-addDep :: TargetPath -> DepPath -> Redo ()
-addDep parent (ScriptDep (ScriptPath child)) = do
-    depsFile <- mkDepsFile parent
-    liftIO $ withFile depsFile AppendMode $ flip hPutStrLn child
-    hashFile <- mkHashFile (TargetPath child)
-    scriptHash <- liftIO $ hashContents child
-    liftIO $ writeHashFile hashFile scriptHash
-addDep parent (TargetDep (TargetPath child)) = do
-    depsFile <- mkDepsFile parent
-    liftIO $ withFile depsFile AppendMode $ flip hPutStrLn child
-
-clearDeps :: TargetPath -> Redo ()
-clearDeps (TargetPath target) = do
-    depsFile <- mkDepsFile (TargetPath target)
-    liftIO $ removeFileIfExists depsFile
-
 
 mkSkeleton :: Redo ()
 mkSkeleton = do
@@ -267,25 +186,69 @@ cleanSkeleton = do
         when failsExists $ removeDirectoryRecursive $ projDir </> "fails"
 
 
+newtype TargetPath = TargetPath FilePath
 
-mkHashFile :: TargetPath -> Redo FilePath
-mkHashFile = mkFooFile "hashes"
-mkDepsFile :: TargetPath -> Redo FilePath
-mkDepsFile = mkFooFile "deps"
-mkUTDFile :: TargetPath -> Redo FilePath
-mkUTDFile = mkFooFile "utd"
-mkFailFile :: TargetPath -> Redo FilePath
-mkFailFile = mkFooFile "fails"
+instance Show TargetPath where
+    show (TargetPath target) = show target
 
-mkFooFile :: String -> TargetPath -> Redo FilePath
-mkFooFile foo (TargetPath path) = do
-    let hash = hash16utf8 path
-    (ProjDir projDir) <- asks _projDir
-    return $ projDir </> foo </> show hash
+targetPath :: FilePath -> IO TargetPath
+targetPath target = do
+    abspath <- makeAbsolute target
+    let (absdir, absname) = splitFileName abspath
+    cannonPath <- canonicalizePath absdir --FIXME this will fail if the directry doesn't exist, which is probably good, but I need a better diagnostic
+    return $ TargetPath $ cannonPath </> absname
+
+parentPath :: IO (Maybe TargetPath)
+parentPath = do
+    env <- getEnvironment
+    return $ TargetPath <$> lookup "REDOPARENT" env
+
+doesTargetExist :: TargetPath -> Redo Bool
+doesTargetExist (TargetPath target) = liftIO $ doesFileExist target
+
+
+
+
+data Status = UpToDate | Failed | Uncomputed
+
+status :: TargetPath -> Redo Status
+status (TargetPath targetPath) = do
+    utd <- liftIO . doesFileExist =<< mkUTDFile targetPath
+    failed <- liftIO . doesFileExist =<< mkFailFile targetPath
+    return $ case (utd, failed) of
+        (_, True) -> Failed
+        (True, _) -> UpToDate
+        _ -> Uncomputed
+
+
+data DepPath = TargetDep TargetPath
+             | ScriptDep ScriptPath
+
+getDeps :: TargetPath -> Redo [TargetPath]
+getDeps (TargetPath target) = do
+    depsFile <- mkDepsFile target
+    exists <- liftIO $ doesFileExist depsFile
+    liftIO $ if exists then map TargetPath . lines <$> readFile depsFile else return []
+
+addDep :: TargetPath -> DepPath -> Redo ()
+addDep (TargetPath parent) (ScriptDep (ScriptPath child)) = do
+    depsFile <- mkDepsFile parent
+    liftIO $ withFile depsFile AppendMode $ flip hPutStrLn child
+    hashFile <- mkHashFile child
+    scriptHash <- liftIO $ hashContents child
+    liftIO $ writeHashFile hashFile scriptHash
+addDep (TargetPath parent) (TargetDep (TargetPath child)) = do
+    depsFile <- mkDepsFile parent
+    liftIO $ withFile depsFile AppendMode $ flip hPutStrLn child
+
+clearDeps :: TargetPath -> Redo ()
+clearDeps (TargetPath target) = do
+    depsFile <- mkDepsFile target
+    liftIO $ removeFileIfExists depsFile
 
 checkForChanges :: TargetPath -> Redo Bool
 checkForChanges (TargetPath target) = do
-    hashFile <- mkHashFile (TargetPath target)
+    hashFile <- mkHashFile target
     hashExists <- liftIO $ doesFileExist hashFile
     if not hashExists then return True else do
         lastHash <- liftIO $ readHashFile hashFile
@@ -293,3 +256,66 @@ checkForChanges (TargetPath target) = do
         --debug $ "last hash: " ++ show lastHash
         --debug $ "curr hash: " ++ show currentHash
         return $ currentHash /= lastHash
+
+recordChange :: TargetPath -> Redo ()
+recordChange (TargetPath target) = do
+    hashFile <- mkHashFile target
+    liftIO $ writeHashFile hashFile =<< hashContents target
+
+recordUpToDate :: TargetPath -> Redo ()
+recordUpToDate (TargetPath target) = do
+    liftIO . removeFileIfExists =<< mkFailFile target
+    exists <- liftIO $ doesFileExist target
+    when exists $ do
+        liftIO . flip writeFile "" =<< mkUTDFile target
+
+recordBuildFailure :: TargetPath -> Redo ()
+recordBuildFailure (TargetPath target) = do
+    liftIO . removeFileIfExists =<< mkUTDFile target
+    liftIO . flip writeFile "" =<< mkFailFile target
+
+
+--FIXME use proper logging libraries
+debug :: String -> Redo ()
+debug msg = do
+    depth <- asks _depth
+    let indentedMsg = concat (replicate depth "    ") ++ msg
+    liftIO $ putErrLn indentedMsg
+
+
+
+
+
+interpreterConfig :: ProjDir -> IO (String, [String])
+interpreterConfig (ProjDir projDir) = do
+    let shFile = projDir </> "interpreter.conf"
+        argsFile = projDir </> "interpreter-args.conf"
+    shFileExists <- doesFileExist shFile
+    argsFileExists <- doesFileExist argsFile
+    case (shFileExists, argsFileExists) of
+        (True, True) -> do
+            sh <- filter (/= '\n') <$> readFile shFile
+            args <- lines <$> readFile argsFile
+            return (sh, args)
+        (True, False) -> do
+            sh <- filter (/= '\n') <$> readFile shFile
+            return (sh, [])
+        (False, _) -> die "no interpreter"
+
+
+mkHashFile :: FilePath -> Redo FilePath
+mkHashFile = mkFooFile "hashes"
+mkDepsFile :: FilePath -> Redo FilePath
+mkDepsFile = mkFooFile "deps"
+mkUTDFile :: FilePath -> Redo FilePath
+mkUTDFile = mkFooFile "utd"
+mkFailFile :: FilePath -> Redo FilePath
+mkFailFile = mkFooFile "fails"
+
+mkFooFile :: String -> FilePath -> Redo FilePath
+mkFooFile foo path = do
+    let hash = hash16utf8 path
+    (ProjDir projDir) <- asks _projDir
+    return $ projDir </> foo </> show hash
+
+
