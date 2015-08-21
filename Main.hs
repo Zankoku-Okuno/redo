@@ -12,6 +12,7 @@ import Distribution.Redo.Monad
 
 -- FIXME eliminate magic strings
 -- FIXME if a file was empty and then deleted, that isn't counting as a change
+-- FIXME if, after redoing the dependencies, none of them actually changed, then we can (reverse-?)prune the target from being built
 
 -- TODO log what is happening
 -- TODO research multi-process threading
