@@ -1,2 +1,7 @@
 dist/
 .hsenv/
+
+target/
+Cargo.lock
+*~
+*.swp

@@ -1,0 +1,8 @@
+[package]
+name = "redo"
+version = "0.1.0"
+authors = ["Okuno Zankoku <zankoku.okuno@gmail.com>"]
+
+[dependencies]
+log = "0.3.2"
+clap = "1.4.2"
