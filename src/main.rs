@@ -3,9 +3,14 @@ extern crate clap;
 
 mod cli {
     use clap::*;
+    use std::env;
+    use std::path::{Path, PathBuf};
+    use std::fs;
 
     pub struct Vars {
         pub verbosity: u8,
+        pub files: Vec<String>,
+        pub dir: PathBuf,
     }
 
     use std::cmp;
@@ -28,13 +33,53 @@ mod cli {
                 .help("decrease verbosity")
                 .short("q")
                 .multiple(true))
+            .arg(Arg::with_name("files")
+                .help("files to build")
+                .multiple(true))
             .get_matches();
 
         let vs = matches.occurrences_of("verbose") as i8;
         let qs = matches.occurrences_of("quiet") as i8;
-        
+        let files = matches.values_of("files").unwrap_or(vec![]);
+        let dir;
+
+        // TODO get environment vars:
+        match env::var("REDO_DIR") {
+            Ok(val) => dir = Path::new(&val).to_path_buf(),
+            Err(env::VarError::NotPresent) => {
+                let mut d = env::current_dir().unwrap();
+                loop {
+                    d.push(".redo/");
+                    match fs::metadata(&d) {
+                        Ok(md) => {
+                            if md.is_dir() {
+                                dir = d;
+                                break;
+                            }
+                            else {
+                                panic!("{} is not a directory.", d.to_str().unwrap());
+                            }
+                        },
+                        Err(e) => { d.pop(); },
+                    }
+                    if !d.pop() {
+                        panic!("No redo repository found.")
+                    }
+                }
+            },
+            Err(e) => panic!(e),
+        }
+        // redo config dir
+        // redo configs
+
+        for file in &files {
+            println!("{}", file);
+        }
+
         Vars {
             verbosity: clamp(1 + vs - qs, 0, 5) as u8,
+            files: files.iter().map(|x| {x.to_string()}).collect(), //FIXME I'm sure there's a way to not copy the text
+            dir: dir,
         }
     }
 }
@@ -60,7 +105,7 @@ mod logger {
         }
     }
 
-    pub fn init() -> Result<(), SetLoggerError> {
+    pub fn init(verbosity: u8) -> Result<(), SetLoggerError> {
         set_logger(|max_level| {
             max_level.set(LogLevelFilter::Trace);
             Box::new(Logger)
@@ -71,14 +116,20 @@ mod logger {
 fn main() {
     let args = cli::get_args();
 
-    logger::init(args.verbosity).unwrap();
-    info!("Verbosity set to: {}", args.verbosity);
+    logger::init(args.verbosity)
+        .ok()
+        .expect("[FATAL] could not initialize logging");
     warn!("TODO: have verbosity affect log level");
+    info!("Verbosity set to: {}", args.verbosity);
+    info!("Project dir: {}", args.dir.to_str().unwrap());
 
-    warn!("TODO: get names from arguments");
-    let names = vec!["foo", "bar"];
-    for name in &names {
-        warn!("TODO running {}", name);
+    if args.files.len() == 0 {
+        warn!("no files given");
+    }
+    else {
+        for name in &args.files {
+            warn!("TODO running {}", name);
+        }
     }
     trace!("done!");
 }
