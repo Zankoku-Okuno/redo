@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, ViewPatterns, GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
 module Distribution.Redo.Monad (
       Redo, runRedo
     , Vars(..), mkVars

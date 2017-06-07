@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 module Distribution.Redo.Util (
       module X, listToMaybe, fromMaybe
     , snoc
@@ -7,7 +6,7 @@ module Distribution.Redo.Util (
     , apFst, apSnd, apPair
     , spanJoin
     , assocUpdate
-    , putErrLn, die
+    , putErrLn
     , removeFileIfExists
     ) where
 
@@ -63,7 +62,6 @@ assocUpdate x'@(a', b') (x@(a, b):xs)
     | otherwise = x : assocUpdate x' xs
 
 putErrLn = hPutStrLn stderr
-die msg = putErrLn msg >> exitFailure
 
 removeFileIfExists filepath = do
     exists <- doesFileExist filepath

@@ -21,14 +21,15 @@ Use cabal install to build the binary and put it in place, then `mk_redo_links.s
 ```
 git clone https://github.com/Zankoku-Okuno/redo.git
 cd redo
-cabal install
-sh mk_redo_links.sh
+cabal build
+sudo cabal install
+sudo sh mk_redo_links.sh
 ```
 
 To enable redo for a project, use `redo-init` at the top-level project folder.
 To rebuild a target file `sna.foo`, invoke `redo sna.foo`.
 To rebuild only when necessary, invoke `redo-ifchange sna.foo`.
-Redo builds a target like `sna.foo` by looking for a build script `sna.foo.do` or `default.foo` (called a do-script) script sister to the target;
+Redo builds a target like `sna.foo` by looking for a build script `sna.foo.do` or `default.foo` script (called a do-script) which is sister to the target;
 it then runs that script, which should generate the target.
 If `redo` or `redo-ifchange` is called from the build script, then those subsequent targets are marked as dependencies for the first.
 You can pass multiple files to the various redo commands, and it will redo all of them.
@@ -118,7 +119,7 @@ Default Scripts
 We don't use default scripts when a target has no extension.
 
 We only look in the same directory for a default script.
-Looking higher in the directory tree maks the build process dependent on whether the project is placed inside other projects.
+Looking higher in the directory tree makes the build process dependent on whether the project is placed inside other projects.
 If you grab a default script from a different project, that could cause all sort of "hilarious" errors.
 
 TODO we hope to allow the user to put default scripts in the project database. Those scripts would be accessible from anywhere in the project.
@@ -136,7 +137,7 @@ However, as it has been noted elsewhere, that strategy means that there end up b
 The question is: does it make sense to have multiple languages implementing your build system?
 No. No it does not.
 There's a way to configure your build shell and any arguments you want to pass to it.
-TODO the interface for configuring is unstable. Probably easiest to use the default `sh -xe` for now, unles your heart is set elsewise.
+TODO the interface for configuring is unstable. Probably easiest to use the default `sh -xe` for now, unless your heart is set elsewise.
 
 TODO in the future, we might allow executables to be run directly when no shell has been configured. We'd keep a default-configured shell, though.
 Ideally, we end up with a multi-level configuration system like git's.
@@ -196,13 +197,13 @@ It may not be worth it to complicate the logic by looking for the do-script of a
 Windows Support
 ---------------
 
-I don't have a Windows machine, so don't come crying to me, come to me with pull requests.
+I don't have a Windows machine, so don't come crying to me; come to me with pull requests.
 
 redo-ifcreate
 -------------
 
 The only difference I can spot between `redo-ifchange` and `redo-ifcreate` is that the ifcreate variant doens't try to run a do-script of the file doesn't already exist.
-Since just about every other build system does not handle this case, I'm not losing anything w.r.t. make if I ignore this case.
+Since just about every other build system does not handle this case, I'm not losing anything w.r.t. them if I ignore this case.
 Maybe I should add it in, but I want to know a real use-case, and not just "oh, the `PATH` changed", because you should be using some sort of sandbox anyway.
 
 That's right: my recommendation is to explicitly note your external dependencies in a file.
