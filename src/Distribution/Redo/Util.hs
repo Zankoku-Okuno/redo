@@ -3,7 +3,7 @@ module Distribution.Redo.Util (
     , snoc
     , breakM
     , breakExts
-    , apFst, apSnd, apPair
+    , apFst, apSnd, apPair, swap
     , spanJoin
     , assocUpdate
     , putErrLn
@@ -50,6 +50,9 @@ apSnd f (a, b) = (a, f b)
 
 apPair :: (a -> b) -> (a, a) -> (b, b)
 apPair f (a, b) = (f a, f b)
+
+swap :: (a, b) -> (b, a)
+swap (a, b) = (b, a)
 
 spanJoin :: (a -> Bool) -> ([a], [a]) -> ([a], [a])
 spanJoin f (pre, xs) = (pre ++ mv, post)

@@ -8,7 +8,7 @@ import System.FilePath
 import System.Exit
 
 import Distribution.Redo.Util
-import Distribution.Redo.Monad
+import Distribution.Redo
 
 -- FIXME eliminate magic strings
 -- FIXME if a file was empty and then deleted, that isn't counting as a change
@@ -27,8 +27,8 @@ main = do
             createDirectory ".redo"
             writeFile ".redo/interpreter.conf" "sh"
             writeFile ".redo/interpreter-args.conf" "-xe"
-            runRedo mkSkeleton =<< mkVars ""
-        "clean" -> runRedo cleanSkeleton =<< mkVars ""
+            runRedo mkSkeleton =<< varsFromEnv ""
+        "clean" -> runRedo cleanSkeleton =<< varsFromEnv ""
         "always" -> do
             results <- mapM (`redoCheck` redoAlways) =<< getArgs
             when (or $ isBadResult <$> results) exitFailure
@@ -36,12 +36,6 @@ main = do
             results <- mapM (`redoCheck` redoIfChange) =<< getArgs
             when (or $ isBadResult <$> results) exitFailure
         _ -> die $ "unrecognized redo command (" ++ cmd ++ ")"
-
-isBadResult :: Result -> Bool
-isBadResult (Bad _) = True
-isBadResult Skip = False
-isBadResult (Run ExitSuccess) = False
-isBadResult (Run (ExitFailure _)) = True
 
 redoAlways :: Redo Bool
 redoAlways = do
@@ -75,7 +69,7 @@ isUpToDate target = status target >>= \case
 redoCheck :: FilePath -> Redo Bool -> IO Result
 redoCheck "" _ = return Skip
 redoCheck pretarget isUpToDate = do
-    vars <- mkVars pretarget
+    vars <- varsFromEnv pretarget
     flip runRedo vars $ do
         target <- asks _target
         debug $ "====== " ++ show target
@@ -89,20 +83,21 @@ redoCheck pretarget isUpToDate = do
             False -> do
                 debug "=== not up-to-date"
                 clearDeps target
-                scripts <- findScript target
+                scripts <- liftIO $ findScript target
                 (target `addDep`) `mapM` (ScriptDep <$> _missing scripts)
                 case _found scripts of
                     Nothing -> do
                         debug "=== source file"
-                        doesTargetExist target >>= \case
+                        liftIO $ doesTargetExist target >>= \case
                             True -> return Skip
                             False -> return . Bad $ "cannot find either source file or build script"
                     Just script -> do
                         target `addDep` ScriptDep script
                         debug "=== running script"
-                        (Run <$>) $ mkProcess script (_targetBasePath scripts) $ \process -> do
-                            (_, _, _, ph) <- liftIO $ createProcess process
-                            liftIO $ waitForProcess ph
+                        vars <- ask
+                        (Run <$>) $ workerProcess vars scripts $ \process -> liftIO $ do
+                            (_, _, _, ph) <- createProcess process
+                            waitForProcess ph
         case result of
             Run ExitSuccess -> do
                 debug $ "=== updated " ++ show pretarget

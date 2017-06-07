@@ -15,10 +15,12 @@ cabal-version:       >=1.10
 library
   hs-source-dirs: src/
   exposed-modules:
+    Distribution.Redo,
     Distribution.Redo.Hash,
-    Distribution.Redo.Monad,
     Distribution.Redo.Util
-  -- other-modules:
+  other-modules:
+    Distribution.Redo.Monad,
+    Distribution.Redo.Env
   build-depends:
     base >=4.8 && <5,
     base16-bytestring ==0.1.*,
@@ -32,6 +34,7 @@ library
   default-language: Haskell2010
   default-extensions:
     LambdaCase,
+    RecordWildCards,
     ViewPatterns
   other-extensions:
     GeneralizedNewtypeDeriving,
