@@ -11,8 +11,8 @@ import Distribution.Redo.Util
 import Distribution.Redo
 
 -- FIXME eliminate magic strings
--- FIXME if a file was empty and then deleted, that isn't counting as a change
 -- FIXME if, after redoing the dependencies, none of them actually changed, then we can (reverse-?)prune the target from being built
+-- FIXME I'm recomputing the hash every time
 
 -- TODO log what is happening
 -- TODO research multi-process threading
@@ -49,20 +49,20 @@ isUpToDate :: TargetPath -> Redo Bool
 isUpToDate target = status target >>= \case
     UpToDate -> do
         debug $ "--- ifchange " ++ show target
-        debug "--- utd file found"
+        debug "--- already built"
         return True
     Failed -> do
         debug $ "--- ifchange " ++ show target
-        debug "--- fail file found"
+        debug "--- already failed"
         return False
     Uncomputed -> do
-        changeDetected <- checkForChanges target
         debug $ "--- ifchange " ++ show target
-        debug $ "--- change detected? " ++ show changeDetected
+        changeDetected <- checkForChanges target
+        debug $ "--- computing: " ++ show changeDetected
         result <- case changeDetected of
             True -> return False
             False -> and <$> (mapM isUpToDate =<< getDeps target)
-        when result $ recordUpToDate target
+        when result $ recordUnchanged target
         return result
 
 
@@ -75,7 +75,7 @@ redoCheck pretarget isUpToDate = do
         debug $ "====== " ++ show target
         do 
             depth <- asks _depth
-            when (depth == 0) mkSkeleton
+            when (depth == 0) clearStatus
         result <- isUpToDate >>= \case
             True -> do
                 debug "=== up-to-date"
@@ -102,10 +102,9 @@ redoCheck pretarget isUpToDate = do
             Run ExitSuccess -> do
                 debug $ "=== updated " ++ show pretarget
                 recordChange target
-                recordUpToDate target
             Skip -> do
                 debug $ "=== skipping " ++ show pretarget
-                recordUpToDate target
+                recordChange target
             _ -> do
                 debug $ "=== build failure " ++ pretarget
                 recordBuildFailure target
