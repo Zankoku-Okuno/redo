@@ -45,9 +45,9 @@ readHashFile hashFile = Hash <$> BS.readFile hashFile
 writeHashFile :: FilePath -> Hash -> IO ()
 writeHashFile hashFile (Hash hash) = BS.writeFile hashFile hash
 
-hashContents :: FilePath -> IO (Maybe Hash)
+hashContents :: FilePath -> IO Hash
 hashContents filepath = do
     exists <- doesFileExist filepath
     if exists
-        then Just . hash16lazy <$> BL.readFile filepath
-        else return $ Nothing
+        then hash16lazy <$> BL.readFile filepath
+        else return $ Hash ""

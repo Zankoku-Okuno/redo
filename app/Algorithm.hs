@@ -1,10 +1,6 @@
-{-# LANGUAGE LambdaCase #-}
-module Main where
+module Algorithm where
 
-import System.Environment
 import System.Process
-import System.Directory
-import System.FilePath
 import System.Exit
 
 import Distribution.Redo.Util
@@ -18,32 +14,6 @@ import Distribution.Redo
 -- TODO research multi-process threading
 
 
-
-main :: IO ()
-main = do
-    cmd <- fromMaybe "always" . stripPrefix "redo-" <$> getProgName
-    case cmd of
-        "init" -> do
-            createDirectory ".redo"
-            writeFile ".redo/interpreter.conf" "sh"
-            writeFile ".redo/interpreter-args.conf" "-xe"
-            runRedo mkSkeleton =<< varsFromEnv ""
-        "clean" -> runRedo cleanSkeleton =<< varsFromEnv ""
-        "always" -> do
-            results <- mapM (`redoCheck` redoAlways) =<< getArgs
-            when (or $ isBadResult <$> results) exitFailure
-        "ifchange" -> do
-            results <- mapM (`redoCheck` redoIfChange) =<< getArgs
-            when (or $ isBadResult <$> results) exitFailure
-        _ -> die $ "unrecognized redo command (" ++ cmd ++ ")"
-
-redoAlways :: Redo Bool
-redoAlways = do
-    debug "--- always"
-    return False
-
-redoIfChange :: Redo Bool
-redoIfChange = isUpToDate =<< asks _target
 
 isUpToDate :: TargetPath -> Redo Bool
 isUpToDate target = status target >>= \case

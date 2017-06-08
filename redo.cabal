@@ -44,15 +44,54 @@ library
     MultiParamTypeClasses
 
 executable redo
-  hs-source-dirs:      app/
-  main-is:             Main.hs
-  other-modules:
+  hs-source-dirs: app/
+  main-is: Always.hs
+  other-modules: Algorithm
+  build-depends:
+    base,
+    process,
+    redo
+  default-language: Haskell2010
+  default-extensions: LambdaCase
+
+executable redo-always
+  hs-source-dirs: app/
+  main-is: Always.hs
+  other-modules: Algorithm
+  build-depends:
+    base,
+    process,
+    redo
+  default-language: Haskell2010
+  default-extensions: LambdaCase
+
+executable redo-ifchange
+  hs-source-dirs: app/
+  main-is: IfChange.hs
+  other-modules: Algorithm
+  build-depends:
+    base,
+    process,
+    redo
+  default-language: Haskell2010
+  default-extensions: LambdaCase
+
+executable redo-init
+  hs-source-dirs: app/
+  main-is: Init.hs
+  -- other-modules:
   build-depends:
     base,
     filepath,
     directory,
-    process,
     redo
-  default-language:    Haskell2010
-  -- default-extensions:
-  -- other-extensions:
+  default-language: Haskell2010
+
+executable redo-clean
+  hs-source-dirs: app/
+  main-is: Clean.hs
+  -- other-modules:
+  build-depends:
+    base,
+    redo
+  default-language: Haskell2010

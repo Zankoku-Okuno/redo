@@ -60,7 +60,7 @@ addDep (TargetPath target) (ScriptDep (ScriptPath script)) = do
     scriptHash <- liftIO $ hashContents script
     withDb $ \db -> do
         Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, ?)"
-                       (script, show UpToDate, showHash <$> scriptHash)
+                       (script, show UpToDate, showHash scriptHash)
         Sql.execute db "INSERT INTO deps (target, dependency) VALUES (?, ?);"
                        (target, script)
 addDep (TargetPath target) (TargetDep (TargetPath dependency)) = withDb $ \db -> do
@@ -73,14 +73,16 @@ clearDeps (TargetPath target) = withDb $ \db -> do
                    (Sql.Only target)
 
 checkForChanges :: TargetPath -> Redo Bool
-checkForChanges (TargetPath target) = withDb $ \db -> do
-    rows <- Sql.query db "SELECT hash FROM targets WHERE target = ?;"
+checkForChanges t@(TargetPath target) = do
+    rows <- withDb $ \db -> Sql.query db "SELECT hash FROM targets WHERE target = ?;"
                          (Sql.Only target)
     let lastHash = case rows of
-                    [(Sql.Only hash)] -> readHash <$> hash
+                    [(Sql.Only hash)] -> Just $ readHash hash
                     [] -> Nothing
                     _ -> error "sql error reading hash"
-    currentHash <- liftIO $ hashContents target
+    currentHash <- liftIO $ Just <$> hashContents target
+    -- debug $ "last hash: " ++ show (showHash <$> lastHash)
+    -- debug $ "current hash: " ++ show (showHash <$> currentHash)
     return $ currentHash /= lastHash
 
 
@@ -101,7 +103,7 @@ recordChange :: TargetPath -> Redo ()
 recordChange (TargetPath target) = withDb $ \db -> do
     hash <- liftIO $ hashContents target
     Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, ?);"
-                   (target, show UpToDate, showHash <$> hash)
+                   (target, show UpToDate, showHash hash)
 
 recordUnchanged :: TargetPath -> Redo ()
 recordUnchanged (TargetPath target) = withDb $ \db -> do
