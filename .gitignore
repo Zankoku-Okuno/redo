@@ -1,3 +1,4 @@
 dist/
 .hsenv/
 .stack-work/
+.redo/
