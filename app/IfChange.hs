@@ -3,7 +3,7 @@ module Main where
 import System.Environment
 import System.Exit
 
-import Distribution.Redo.Util -- FIXME use ClassyPrelude
+import Distribution.Redo.Util
 import Distribution.Redo
 import Algorithm
 

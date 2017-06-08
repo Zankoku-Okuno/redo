@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses, ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses #-}
 module Distribution.Redo.Monad (
       Redo, runRedo
 
@@ -50,44 +50,44 @@ data DepPath = TargetDep TargetPath
              | ScriptDep ScriptPath
 
 getDeps :: TargetPath -> Redo [TargetPath]
-getDeps (TargetPath target) = withDb $ \db -> do
+getDeps target = withDb $ \db -> do
     rows <- Sql.query db "SELECT dependency FROM deps WHERE target = ?;"
                          (Sql.Only target)
-    pure $ TargetPath . Sql.fromOnly <$> rows
+    pure $ Sql.fromOnly <$> rows
 
 addDep :: TargetPath -> DepPath -> Redo ()
-addDep (TargetPath target) (ScriptDep (ScriptPath script)) = do
+addDep target (ScriptDep (ScriptPath script)) = do
     scriptHash <- liftIO $ hashContents script
     withDb $ \db -> do
         Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, ?)"
-                       (script, show UpToDate, showHash scriptHash)
+                       (script, show UpToDate, scriptHash)
         Sql.execute db "INSERT INTO deps (target, dependency) VALUES (?, ?);"
                        (target, script)
-addDep (TargetPath target) (TargetDep (TargetPath dependency)) = withDb $ \db -> do
+addDep target (TargetDep dependency) = withDb $ \db -> do
     Sql.execute db "INSERT INTO deps (target, dependency) VALUES (?, ?);"
                    (target, dependency)
 
 clearDeps :: TargetPath -> Redo ()
-clearDeps (TargetPath target) = withDb $ \db -> do
+clearDeps target = withDb $ \db -> do
     Sql.execute db "DELETE FROM deps WHERE target = ?"
                    (Sql.Only target)
 
 checkForChanges :: TargetPath -> Redo Bool
-checkForChanges t@(TargetPath target) = do
+checkForChanges target = do
     rows <- withDb $ \db -> Sql.query db "SELECT hash FROM targets WHERE target = ?;"
                          (Sql.Only target)
     let lastHash = case rows of
-                    [(Sql.Only hash)] -> Just $ readHash hash
+                    [(Sql.Only hash)] -> Just $ hash
                     [] -> Nothing
                     _ -> error "sql error reading hash"
-    currentHash <- liftIO $ Just <$> hashContents target
+    currentHash <- liftIO $ Just <$> hashContents (targetAsFilePath target)
     -- debug $ "last hash: " ++ show (showHash <$> lastHash)
     -- debug $ "current hash: " ++ show (showHash <$> currentHash)
     return $ currentHash /= lastHash
 
 
 status :: TargetPath -> Redo Status
-status (TargetPath target) = withDb $ \db -> do
+status target = withDb $ \db -> do
     rows <- Sql.query db "SELECT status FROM targets WHERE target = ?"
                          (Sql.Only target)
     pure $ case rows of
@@ -100,23 +100,22 @@ clearStatus = withDb $ \db -> do
     Sql.execute_ db "UPDATE targets SET status = 'Uncomputed';"
 
 recordChange :: TargetPath -> Redo ()
-recordChange (TargetPath target) = withDb $ \db -> do
-    hash <- liftIO $ hashContents target
+recordChange target = withDb $ \db -> do
+    hash <- liftIO $ hashContents (targetAsFilePath target)
     Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, ?);"
-                   (target, show UpToDate, showHash hash)
+                   (target, show UpToDate, hash)
 
 recordUnchanged :: TargetPath -> Redo ()
-recordUnchanged (TargetPath target) = withDb $ \db -> do
+recordUnchanged target = withDb $ \db -> do
     Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, (SELECT hash FROM targets WHERE target = ?));"
                    (target, show UpToDate, target)
 
 recordBuildFailure :: TargetPath -> Redo ()
-recordBuildFailure (TargetPath target) = withDb $ \db -> do
+recordBuildFailure target = withDb $ \db -> do
     Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, (SELECT hash FROM targets WHERE target = ?));"
                    (target, show Failed, target)
 
 
---FIXME use proper logging libraries
 debug :: String -> Redo ()
 debug msg = do
     depth <- asks _depth

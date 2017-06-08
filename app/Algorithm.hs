@@ -6,14 +6,6 @@ import System.Exit
 import Distribution.Redo.Util
 import Distribution.Redo
 
--- FIXME eliminate magic strings
--- FIXME if, after redoing the dependencies, none of them actually changed, then we can (reverse-?)prune the target from being built
--- FIXME I'm recomputing the hash every time
-
--- TODO log what is happening
--- TODO research multi-process threading
-
-
 
 isUpToDate :: TargetPath -> Redo Bool
 isUpToDate target = status target >>= \case
@@ -82,7 +74,3 @@ redoCheck pretarget isUpToDate = do
             Nothing -> return ()
             Just parent -> parent `addDep` TargetDep target
         return result
-
-
-
-

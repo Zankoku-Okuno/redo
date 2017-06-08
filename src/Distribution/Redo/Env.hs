@@ -1,8 +1,8 @@
 module Distribution.Redo.Env
     ( Vars(..), varsFromEnv
 
-    , TargetPath(..)
-    , targetPath, parentPath
+    , TargetPath
+    , targetPath, parentPath, targetAsFilePath
     , doesTargetExist
     , ProjDir(..), lookupProjDir
     , interpreterConfig
@@ -23,6 +23,9 @@ import System.Directory
 import System.FilePath
 import System.Process
 import System.Exit
+
+import Database.SQLite.Simple.ToField
+import Database.SQLite.Simple.FromField
 
 
 data Vars = Vars {
@@ -50,12 +53,17 @@ varsFromEnv filepath = do
 newtype TargetPath = TargetPath FilePath
 instance Show TargetPath where
     show (TargetPath target) = show target
+instance ToField TargetPath where
+    toField (TargetPath target) = toField target
+instance FromField TargetPath where
+    fromField = (TargetPath <$>) . fromField
+targetAsFilePath (TargetPath target) = target
 
 targetPath :: FilePath -> IO TargetPath
 targetPath target = do
     abspath <- makeAbsolute target
     let (absdir, absname) = splitFileName abspath
-    cannonPath <- canonicalizePath absdir --FIXME this will fail if the directry doesn't exist, which is probably good, but I need a better diagnostic
+    cannonPath <- canonicalizePath absdir
     return $ TargetPath $ cannonPath </> absname
 
 parentPath :: IO (Maybe TargetPath)
@@ -155,7 +163,6 @@ workerProcess Vars{..}
                $ assocUpdate (_parentEnv, target)
                  env0
     withTmpFile _target $ \tmpfile tmpfp -> do
-        --TODO add $1 argument
         let cmd = proc _sh $ _shArgs ++ [script, "", targetBasePath, tmpfile]
             process = cmd { std_out = UseHandle tmpfp
                           , env = Just env'
