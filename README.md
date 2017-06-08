@@ -1,6 +1,8 @@
 Redo
 ====
 
+[![Build Status](https://travis-ci.org/Zankoku-Okuno/redo.svg?branch=master)](https://travis-ci.org/Zankoku-Okuno/redo)
+
 Redo is a [design](http://cr.yp.to/redo.html) for a recursive build system that is both simpler and technologically superior to make.
 
 If you're getting annoyed at how clumsy make and automake are, but are writing in a language that doesn't have its own build system, redo is for you.

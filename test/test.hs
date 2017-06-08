@@ -1,11 +1,14 @@
 import Prelude hiding (FilePath)
+import Data.Maybe
 import Control.Monad
 
 import Shelly
 import System.Exit
+import Text.Regex
 
+import Data.Text (Text)
 import qualified Data.Text as T
-default(T.Text)
+default(Text)
 
 
 main :: IO ()
@@ -20,15 +23,15 @@ main = do
 echo_ :: IO Bool
 echo_ = withRedo ("test" </> "echo") $ do
     results <- cmd "redo-ifchange" "out"
-    a <- ("\n+ cat in" `T.isInfixOf`) <$> lastStderr
+    a <- catIn <$> lastStderr
     results <- cmd "redo-ifchange" "out"
-    b <- ("\n+ cat in" `T.isInfixOf`) <$> lastStderr
+    b <- catIn <$> lastStderr
     pure $ a && not b
 
 diamond_ :: IO Bool
 diamond_ = withRedo ("test" </> "diamond") $ do
     results <- cmd "redo-ifchange" "out"
-    a <- length . filter ("+ cat in" `T.isPrefixOf`) . T.lines <$> lastStderr
+    a <- length . filter catIn . T.lines <$> lastStderr
     pure $ a == 1
 
 
@@ -38,3 +41,8 @@ withRedo dir action = shelly $ do
     rm_rf ".redo/"
     cmd "redo-init"
     action
+
+catIn :: Text -> Bool
+catIn = isJust . matchRegex r . T.unpack
+    where
+    r = mkRegex "^\\+\\s*cat in"
