@@ -37,7 +37,7 @@ redoCheck pretarget isUpToDate = do
         debug $ "====== " ++ show target
         do 
             depth <- asks _depth
-            when (depth == 0) clearStatus
+            when (depth == 0) $ mkSkeleton >> clearStatus
         result <- isUpToDate >>= \case
             True -> do
                 debug "=== up-to-date"
