@@ -132,7 +132,7 @@ debug msg = do
 mkSkeleton :: Redo ()
 mkSkeleton = do
     withDb $ \db -> do
-        Sql.execute_ db "CREATE TABLE targets (target TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, hash TEXT);"
+        Sql.execute_ db "CREATE TABLE targets (target TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, hash BLOB NOT NULL);"
         Sql.execute_ db "CREATE TABLE deps (target TEXT NOT NULL, dependency TEXT NOT NULL);"
 
 cleanSkeleton :: Redo ()
