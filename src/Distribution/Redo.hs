@@ -7,7 +7,7 @@ module Distribution.Redo
     , DepPath(..)
     , getDeps, addDep, clearDeps
     , checkForChanges
-    , clearStatus, recordChange, recordUnchanged, recordBuildFailure
+    , clearStatus, recordChanged, recordNoChange, recordBuildFailure
 
     -- * Environment
     , Vars(..), varsFromEnv

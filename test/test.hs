@@ -72,7 +72,7 @@ echoDiamond_ = withRedo ("test" </> "diamond") $ do
 test :: Text -> Sh Bool -> IO Bool
 test testName action = shelly $ do
     echo ""
-    echo $ "###### TESTING: " <> testName <> " ######"
+    echo $ "###### \x1b[33mTESTING\x1b[0m: " <> testName <> " ######"
     r <- action
     if r
         then echo $ "\x1b[32mOK\x1b[0m: " <> testName

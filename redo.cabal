@@ -38,6 +38,7 @@ library
     LambdaCase,
     OverloadedStrings,
     RecordWildCards,
+    ScopedTypeVariables,
     ViewPatterns
   other-extensions:
     GeneralizedNewtypeDeriving,

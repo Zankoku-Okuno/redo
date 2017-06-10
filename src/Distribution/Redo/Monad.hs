@@ -6,7 +6,7 @@ module Distribution.Redo.Monad (
     , DepPath(..)
     , getDeps, addDep, clearDeps
     , checkForChanges
-    , clearStatus, recordChange, recordUnchanged, recordBuildFailure
+    , clearStatus, recordChanged, recordNoChange, recordBuildFailure
 
     , mkSkeleton, cleanSkeleton
     , debug
@@ -41,7 +41,7 @@ runRedo action vars = flip runReaderT vars $ unRedo action
 
 
 
-data Status = UpToDate | Failed | Uncomputed
+data Status = Changed | NoChange | Failure | Unknown
     deriving(Eq, Show, Read)
 
 
@@ -59,8 +59,8 @@ addDep :: TargetPath -> DepPath -> Redo ()
 addDep target (ScriptDep (ScriptPath script)) = do
     scriptHash <- liftIO $ hashContents script
     withDb $ \db -> do
-        Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, ?)"
-                       (script, show UpToDate, scriptHash)
+        Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, COALESCE((SELECT status FROM targets WHERE target = ?), ?), ?)"
+                       (script, script, show Changed, scriptHash)
         Sql.execute db "INSERT INTO deps (target, dependency) VALUES (?, ?);"
                        (target, script)
 addDep target (TargetDep dependency) = withDb $ \db -> do
@@ -92,28 +92,33 @@ status target = withDb $ \db -> do
                          (Sql.Only target)
     pure $ case rows of
         [(Sql.Only status)] -> read status
-        [] -> Uncomputed
+        [] -> Unknown
         _ -> error "sql problem obtaining status"
 
 clearStatus :: Redo ()
 clearStatus = withDb $ \db -> do
-    Sql.execute_ db "UPDATE targets SET status = 'Uncomputed';"
+    Sql.execute db "UPDATE targets SET status = ?;" (Sql.Only $ show Unknown)
 
-recordChange :: TargetPath -> Redo ()
-recordChange target = withDb $ \db -> do
+recordChanged :: TargetPath -> Redo ()
+recordChanged target = withDb $ \db -> do
     hash <- liftIO $ hashContents (targetAsFilePath target)
     Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, ?);"
-                   (target, show UpToDate, hash)
+                   (target, show Changed, hash)
 
-recordUnchanged :: TargetPath -> Redo ()
-recordUnchanged target = withDb $ \db -> do
-    Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, (SELECT hash FROM targets WHERE target = ?));"
-                   (target, show UpToDate, target)
+recordNoChange :: TargetPath -> Redo ()
+recordNoChange target = withDb $ \db -> do
+    Sql.query db "SELECT status FROM targets WHERE target = ?;" (Sql.Only target) >>= \case
+        [] -> do
+            hash <- liftIO $ hashContents (targetAsFilePath target)
+            Sql.execute db "INSERT INTO targets (target, status, hash) VALUES (?, ?, ?);"
+                   (target, show Changed, hash)
+        (_ :: [Sql.Only String]) -> pure ()
+    Sql.execute db "UPDATE targets SET status = ? WHERE target = ? AND status = ?;" (show Changed, target, show Unknown)
 
 recordBuildFailure :: TargetPath -> Redo ()
 recordBuildFailure target = withDb $ \db -> do
     Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, (SELECT hash FROM targets WHERE target = ?));"
-                   (target, show Failed, target)
+                   (target, show Failure, target)
 
 
 debug :: String -> Redo ()

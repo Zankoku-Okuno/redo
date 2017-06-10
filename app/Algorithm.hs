@@ -9,23 +9,27 @@ import Distribution.Redo
 
 isUpToDate :: TargetPath -> Redo Bool
 isUpToDate target = status target >>= \case
-    UpToDate -> do
+    Changed -> do
         debug $ "--- ifchange " ++ show target
-        debug "--- already built"
+        debug "--- already rebuilt"
         return True
-    Failed -> do
+    NoChange -> do
         debug $ "--- ifchange " ++ show target
-        debug "--- already failed"
+        debug "--- no change"
+        return True
+    Failure -> do
+        debug $ "--- ifchange " ++ show target
+        debug "--- failed"
         return False
-    Uncomputed -> do
+    Unknown -> do
         debug $ "--- ifchange " ++ show target
         changeDetected <- checkForChanges target
-        debug $ "--- computing: " ++ show changeDetected
-        result <- case changeDetected of
+        debug $ "--- computing: " ++ (if changeDetected then "" else "no ") ++ "change detected"
+        nochange <- case changeDetected of
             True -> return False
             False -> and <$> (mapM isUpToDate =<< getDeps target)
-        when result $ recordUnchanged target
-        return result
+        when nochange $ recordNoChange target
+        return nochange
 
 
 redoCheck :: FilePath -> Redo Bool -> IO Result
@@ -63,10 +67,10 @@ redoCheck pretarget isUpToDate = do
         case result of
             Run ExitSuccess -> do
                 debug $ "=== updated " ++ show pretarget
-                recordChange target
+                recordChanged target
             Skip -> do
                 debug $ "=== skipping " ++ show pretarget
-                recordChange target
+                recordNoChange target
             _ -> do
                 debug $ "=== build failure " ++ pretarget
                 recordBuildFailure target
