@@ -26,6 +26,10 @@ import System.IO
 import System.Directory
 import System.FilePath
 import qualified Database.SQLite.Simple as Sql
+import Database.SQLite.Simple (Only(..))
+
+import Database.SQLite.Simple.ToField
+import Database.SQLite.Simple.FromField
 
 
 newtype Redo a = Redo { unRedo :: ReaderT Vars IO a }
@@ -43,6 +47,10 @@ runRedo action vars = flip runReaderT vars $ unRedo action
 
 data Status = Changed | NoChange | Failure | Unknown
     deriving(Eq, Show, Read)
+instance ToField Status where
+    toField = toField . show
+instance FromField Status where
+    fromField = (read <$>) . fromField
 
 
 
@@ -52,7 +60,7 @@ data DepPath = TargetDep TargetPath
 getDeps :: TargetPath -> Redo [TargetPath]
 getDeps target = withDb $ \db -> do
     rows <- Sql.query db "SELECT dependency FROM deps WHERE target = ?;"
-                         (Sql.Only target)
+                         (Only target)
     pure $ Sql.fromOnly <$> rows
 
 addDep :: TargetPath -> DepPath -> Redo ()
@@ -63,21 +71,21 @@ addDep target (ScriptDep (ScriptPath script)) = do
                        (script, script, show Changed, scriptHash)
         Sql.execute db "INSERT INTO deps (target, dependency) VALUES (?, ?);"
                        (target, script)
-addDep target (TargetDep dependency) = withDb $ \db -> do
+addDep target (TargetDep dependency) = withDb $ \db ->
     Sql.execute db "INSERT INTO deps (target, dependency) VALUES (?, ?);"
                    (target, dependency)
 
 clearDeps :: TargetPath -> Redo ()
-clearDeps target = withDb $ \db -> do
+clearDeps target = withDb $ \db ->
     Sql.execute db "DELETE FROM deps WHERE target = ?"
-                   (Sql.Only target)
+                   (Only target)
 
 checkForChanges :: TargetPath -> Redo Bool
-checkForChanges target = do
-    rows <- withDb $ \db -> Sql.query db "SELECT hash FROM targets WHERE target = ?;"
-                         (Sql.Only target)
+checkForChanges target = withDb $ \db -> do
+    rows <- Sql.query db "SELECT hash FROM targets WHERE target = ?;"
+                         (Only target)
     let lastHash = case rows of
-                    [(Sql.Only hash)] -> Just $ hash
+                    [Only hash] -> Just hash
                     [] -> Nothing
                     _ -> error "sql error reading hash"
     currentHash <- liftIO $ Just <$> hashContents (targetAsFilePath target)
@@ -89,36 +97,47 @@ checkForChanges target = do
 status :: TargetPath -> Redo Status
 status target = withDb $ \db -> do
     rows <- Sql.query db "SELECT status FROM targets WHERE target = ?"
-                         (Sql.Only target)
+                         (Only target)
     pure $ case rows of
-        [(Sql.Only status)] -> read status
+        [Only status] -> status -- FIXME use Sql.fromOnly
         [] -> Unknown
         _ -> error "sql problem obtaining status"
 
 clearStatus :: Redo ()
-clearStatus = withDb $ \db -> do
-    Sql.execute db "UPDATE targets SET status = ?;" (Sql.Only $ show Unknown)
+clearStatus = withDb $ \db ->
+    Sql.execute db "UPDATE targets SET status = ?;"
+                   (Only Unknown)
 
 recordChanged :: TargetPath -> Redo ()
 recordChanged target = withDb $ \db -> do
     hash <- liftIO $ hashContents (targetAsFilePath target)
     Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, ?);"
-                   (target, show Changed, hash)
+                   (target, Changed, hash)
 
 recordNoChange :: TargetPath -> Redo ()
 recordNoChange target = withDb $ \db -> do
-    Sql.query db "SELECT status FROM targets WHERE target = ?;" (Sql.Only target) >>= \case
+    row <- Sql.query db "SELECT status FROM targets WHERE target = ?;"
+                        (Only target)
+    case row of
         [] -> do
             hash <- liftIO $ hashContents (targetAsFilePath target)
             Sql.execute db "INSERT INTO targets (target, status, hash) VALUES (?, ?, ?);"
-                   (target, show Changed, hash)
-        (_ :: [Sql.Only String]) -> pure ()
-    Sql.execute db "UPDATE targets SET status = ? WHERE target = ? AND status = ?;" (show Changed, target, show Unknown)
+                           (target, Changed, hash)
+        (_ :: [Only String]) -> pure ()
+    Sql.execute db "UPDATE targets SET status = ? WHERE target = ? AND status = ?;"
+                   (Changed, target, Unknown)
 
 recordBuildFailure :: TargetPath -> Redo ()
 recordBuildFailure target = withDb $ \db -> do
-    Sql.execute db "INSERT OR REPLACE INTO targets (target, status, hash) VALUES (?, ?, (SELECT hash FROM targets WHERE target = ?));"
-                   (target, show Failure, target)
+    row <- Sql.query db "SELECT status FROM targets WHERE target = ?;"
+                        (Only target)
+    case row of
+        [] -> do
+            hash <- liftIO $ hashContents (targetAsFilePath target)
+            Sql.execute db "INSERT INTO targets (target, status, hash) VALUES (?, ?, ?);"
+                           (target, Failure, hash)
+        (_ :: [Only Status]) -> Sql.execute db "UPDATE targets SET status = ? WHERE target = ?;"
+                                               (Failure, target)
 
 
 debug :: String -> Redo ()
@@ -135,10 +154,9 @@ debug msg = do
 
 
 mkSkeleton :: Redo ()
-mkSkeleton = do
-    withDb $ \db -> do
-        Sql.execute_ db "CREATE TABLE IF NOT EXISTS targets (target TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, hash BLOB NOT NULL);"
-        Sql.execute_ db "CREATE TABLE IF NOT EXISTS deps (target TEXT NOT NULL, dependency TEXT NOT NULL);"
+mkSkeleton = withDb $ \db -> do
+    Sql.execute_ db "CREATE TABLE IF NOT EXISTS targets (target TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, hash BLOB NOT NULL);"
+    Sql.execute_ db "CREATE TABLE IF NOT EXISTS deps (target TEXT NOT NULL, dependency TEXT NOT NULL);"
 
 cleanSkeleton :: Redo ()
 cleanSkeleton = withDb $ \db -> do

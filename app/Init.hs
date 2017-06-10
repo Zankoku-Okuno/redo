@@ -1,4 +1,6 @@
-module Main where
+module Main
+    ( main
+    ) where
 
 import System.Directory
 import System.FilePath
@@ -10,19 +12,19 @@ import Distribution.Redo
 
 main :: IO ()
 main = do
-    whenDirectoryDoesNotExist ".redo" $ do
+    whenDirectoryDoesNotExist ".redo" $
         createDirectory ".redo"
-    whenFileDoesNotExist (".redo" </> "interpreter.conf") $ do
+    whenFileDoesNotExist (".redo" </> "interpreter.conf") $
         writeFile (".redo" </> "interpreter.conf") "sh"
-    whenFileDoesNotExist (".redo" </> "interpreter-args.conf") $ do
+    whenFileDoesNotExist (".redo" </> "interpreter-args.conf") $
         writeFile (".redo" </> "interpreter-args.conf") "-xe"
     runRedo mkSkeleton =<< varsFromEnv ""
 
 
 whenDirectoryDoesNotExist dir action = do
     r <- doesDirectoryExist dir
-    when (not r) action
+    unless r action
 
 whenFileDoesNotExist f action = do
     r <- doesDirectoryExist f
-    when (not r) action
+    unless r action

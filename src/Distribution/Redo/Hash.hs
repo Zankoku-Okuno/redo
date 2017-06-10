@@ -4,11 +4,7 @@ module Distribution.Redo.Hash (
     , hashContents
     ) where
 
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
 import Distribution.Redo.Util
-
-import System.Directory (doesFileExist)
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -16,6 +12,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.ByteString.Base16 as Base16
 import qualified Crypto.Hash.SHA256 as SHA256
+
+import System.Directory (doesFileExist)
 
 import Database.SQLite.Simple.ToField
 import Database.SQLite.Simple.FromField
@@ -26,14 +24,14 @@ newtype Hash = Hash BS.ByteString
 instance Show Hash where
     show = showHash
 instance ToField Hash where
-    toField (Hash hash) = toField  hash
+    toField (Hash hash) = toField hash
 instance FromField Hash where
     fromField = (Hash <$>) . fromField
 
 showHash :: Hash -> String
 showHash (Hash hash) = T.unpack . T.decodeUtf8 $ Base16.encode hash
 readHash :: String -> Hash
-readHash str = Hash . fst . Base16.decode . T.encodeUtf8 . T.pack $ str
+readHash = Hash . fst . Base16.decode . T.encodeUtf8 . T.pack
 
 hash16 :: BS.ByteString -> Hash
 hash16 = Hash . Base16.encode . SHA256.hash

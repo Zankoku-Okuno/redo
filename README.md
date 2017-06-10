@@ -17,15 +17,13 @@ Although we'll try to maintain compatibility where we can, we specifically won't
 Usage
 =====
 
-Install from the [git repository](https://github.com/Zankoku-Okuno/redo).
-Use cabal install to build the binary and put it in place, then `mk_redo_links.sh` creates appropriate symlinks.
+Install from the [git repository](https://github.com/Zankoku-Okuno/redo) with cabal (or stack).
 
 ```
 git clone https://github.com/Zankoku-Okuno/redo.git
 cd redo
 cabal build
 sudo cabal install
-sudo sh mk_redo_links.sh
 ```
 
 To enable redo for a project, use `redo-init` at the top-level project folder.
@@ -64,7 +62,7 @@ For each file you pass in, redo will look for a do-script, which contains the in
 It will then run that script, redirecting stdout to a temporary file, and when it completes successfully, the newly-generated file will be moved into place, overwriting any older version only after we know we have a good result.
 
 A do-script might require other files to also be regenerated.
-The best thing to do is to call `redo-ifchange`.
+The best thing to do is to call `redo-ifchange` from the do-script.
 The difference from `redo` is that the ifchange version will skip any files that are already up-to-date.
 
 How does redo track whether a file needs to be rebuilt?

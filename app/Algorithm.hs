@@ -1,4 +1,7 @@
-module Algorithm where
+module Algorithm
+    ( isUpToDate
+    , redoCheck
+    ) where
 
 import System.Process
 import System.Exit
@@ -25,9 +28,9 @@ isUpToDate target = status target >>= \case
         debug $ "--- ifchange " ++ show target
         changeDetected <- checkForChanges target
         debug $ "--- computing: " ++ (if changeDetected then "" else "no ") ++ "change detected"
-        nochange <- case changeDetected of
-            True -> return False
-            False -> and <$> (mapM isUpToDate =<< getDeps target)
+        nochange <- if changeDetected
+            then return False
+            else and <$> (mapM isUpToDate =<< getDeps target)
         when nochange $ recordNoChange target
         return nochange
 

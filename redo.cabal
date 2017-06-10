@@ -1,7 +1,39 @@
 name:                redo
 version:             0.0.0
--- synopsis:            
--- description:         
+synopsis:
+    A recursive build system that is both simpler and superior to make.
+description:
+    Install from the [git repository](https://github.com/Zankoku-Okuno/redo) with cabal (or stack).
+    .
+    > git clone https://github.com/Zankoku-Okuno/redo.git
+    > cd redo
+    > cabal build
+    > sudo cabal install
+    .
+    To enable redo for a project, use @redo-init@ at the top-level project folder.
+    To rebuild a target file @sna.foo@, invoke @redo sna.foo@.
+    To rebuild only when necessary, invoke @redo-ifchange sna.foo@.
+    Redo builds a target like @sna.foo@ by looking for a build script @sna.foo.do@ or @default.foo@ script (called a do-script) which is sister to the target;
+    it then runs that script, which should generate the target.
+    If @redo@ or @redo-ifchange@ is called from the build script, then those subsequent targets are marked as dependencies for the first.
+    You can pass multiple files to the various redo commands, and it will redo all of them.
+    .
+    For each file you pass in, redo will look for a do-script, which contains the instructions for building the file.
+    It will then run that script, redirecting stdout to a temporary file, and when it completes successfully, the newly-generated file will be moved into place, overwriting any older version only after we know we have a good result.
+    The script is called with three arguments:
+    1) the empty string (possibly the name of the target file in the future), 
+    2) the basename (extension removed) of the target file, 
+    3) the name of the temporary file.
+    .
+    A do-script might require other files to also be regenerated.
+    The best thing to do is to call @redo-ifchange@ from the do-script.
+    The difference from @redo@ is that the ifchange version will skip any files that are already up-to-date.
+    .
+    How does redo track whether a file needs to be rebuilt?
+    Let's say you run @redo@ on a file which we'll call the \"parent\".
+    When the parent's build script calls @redo@ on some files, which we'll call the \"children\", the children are registered as dependencies for the parent.
+    When you next run @redo-ifchange@ on the parent, all the dependency information from the last run will be used to check if any (transitive) dependency was altered.
+    If there was no change, then we don't run the do-script, and you get an incremental build.
 license:             BSD3
 license-file:        LICENSE
 author:              Zankoku Okuno
