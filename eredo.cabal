@@ -1,0 +1,64 @@
+name:                eredo
+version:             0.0.0
+synopsis:            Simplicity in a build tool leads to reliable, understandable builds.
+description:
+    Engineered Redo (eredo) is a build tool based on djb's redo sketch.
+    TODO: add more description
+license:             GPL-3
+license-file:        LICENSE
+author:              Okuno Zankoku
+maintainer:          zankoku.okuno@gmail.com
+-- copyright:           
+category:            Development
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+library
+  exposed-modules:
+    Distribution.Redo.Basic,
+    Distribution.Redo.Error,
+    Distribution.Redo.State
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends:
+    base >=4.8 && <5,
+    ConfigFile ==1.*,
+    directory ==1.*,
+    filepath ==1.*,
+    Glob,
+    mtl ==2.*,
+    process >=1.2.1 && <2,
+    sqlite-simple ==0.4.*,
+    temporary ==1.*,
+    transformers ==0.5.*
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  default-extensions:
+    FlexibleContexts,
+    LambdaCase,
+    OverloadedStrings,
+    RecordWildCards,
+    ScopedTypeVariables,
+    ViewPatterns
+  other-extensions: DeriveDataTypeable
+
+executable redo-init
+  main-is: Init.hs
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends: eredo, base, ConfigFile, directory, filepath, Glob, mtl, process, sqlite-simple, temporary, transformers
+  hs-source-dirs: src
+  default-language: Haskell2010
+  default-extensions: FlexibleContexts, LambdaCase, OverloadedStrings, RecordWildCards, ScopedTypeVariables, ViewPatterns
+  other-extensions: DeriveDataTypeable
+
+executable redo-always
+  main-is: Always.hs
+  -- other-modules:       
+  -- other-extensions:    
+  build-depends: eredo, base, ConfigFile, directory, filepath, Glob, mtl, process, sqlite-simple, temporary, transformers
+  hs-source-dirs: src
+  default-language: Haskell2010
+  default-extensions: FlexibleContexts, LambdaCase, OverloadedStrings, RecordWildCards, ScopedTypeVariables, ViewPatterns
+  other-extensions: DeriveDataTypeable
