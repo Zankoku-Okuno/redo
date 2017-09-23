@@ -5,7 +5,7 @@ module Distribution.Redo.Error
     ) where
 
 import Control.Exception
-import Type.Reflection (Typeable)
+import Data.Typeable
 
 
 data RedoException =

@@ -1,5 +1,6 @@
 name:                eredo
 version:             0.0.0
+stability:           experimental
 synopsis:            Simplicity in a build tool leads to reliable, understandable builds.
 description:
     Engineered Redo (eredo) is a build tool based on djb's redo sketch.
