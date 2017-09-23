@@ -1,0 +1,7 @@
+NOTES
+
+dircolors
+
+don't forget to colorize stderr
+
+all environment variables beginning with `REDO__` are reserved by redo
