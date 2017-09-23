@@ -1,7 +1,0 @@
-echo 'no one'
-echo 'yes two'
-echo 'yes three'
-echo 'no four'
-echo 'yes five'
-echo 'no six'
-echo 'yes seven'
