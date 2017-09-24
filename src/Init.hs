@@ -2,7 +2,8 @@ module Main where
 
 import Control.Monad
 import System.Directory
-import Distribution.Redo.State as Redo
+
+import Distribution.Redo.State
 
 
 main :: IO ()
