@@ -1,7 +1,7 @@
 module Distribution.Redo.Basic
     ( Project(..), openProject
-    , Build(..), getBuild
-    , Target(..), ScriptPath(..), getTarget
+    -- , Build(..), getBuild -- TODO it looks like I don't need a Build
+    , Target(..), ScriptPath, getTarget
     ) where
 
 import Control.Applicative
@@ -98,12 +98,8 @@ data Build = Build {
 
 getBuild :: Project -> IO Build
 getBuild Project{..} = do
-    loadBuild state >>= \case
-        Just buildId -> do
-            pure Build{..}
-        Nothing -> do
-            buildId <- newBuild state
-            pure Build{..}
+    buildId <- loadBuild state
+    pure Build{..}
 
 data Target = Target
     { canonPath :: FilePath

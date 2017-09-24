@@ -2,7 +2,7 @@ module Distribution.Redo.State
     ( State, BuildId
     , isStateAt
     , loadState, initState
-    , loadBuild, newBuild
+    , loadBuild, finishBuild
     , registerSource, registerTarget, registerScript
     , markBuilding, markUpToDate, markBuildFailed
     , addIfCreateDependency, addIfChangeDependency, clearDependencies
@@ -51,8 +51,9 @@ initState topDir = do
             \  , filename  TEXT NOT NULL UNIQUE\n\
             \  , filetype  TEXT NOT NULL\n\
             \                CHECK (filetype IN ('SOURCE', 'TARGET', 'SCRIPT'))\n\
-            \  , lifecycle TEXT NOT NULL DEFAULT 'UNSCANNED'\n\
-            \                CHECK (lifecycle IN ('UNSCANNED', 'BUILDING', 'UPTODATE', 'BUILDFAILED'))\n\
+            \  , lifecycle TEXT\n\
+            \                CHECK (lifecycle IN ('BUILDING', 'UPTODATE', 'BUILDFAILED'))\n\
+            \  , last_scan INTEGER REFERENCES build(id)\n\
             \ -- TODO timestamp, hash of contents\n\
             \);"
         Sql.execute_ conn "CREATE INDEX file_filename_idx ON file (filename);"
@@ -62,30 +63,29 @@ initState topDir = do
             \  , depends_on INTEGER NOT NULL REFERENCES file(id)\n\
             \  , dep_type   TEXT NOT NULL CHECK (dep_type IN ('IFCREATE', 'IFCHANGE'))\n\
             \);"
-    -- TODO plop down an empty config file
     loadState topDir
 
 
 type BuildId = Int
 
-loadBuild :: State -> IO (Maybe BuildId)
-loadBuild State{..} = Sql.withTransaction conn $ do
+-- WARNING must be run inside transaction
+getBuildId_ :: Sql.Connection -> IO Int
+getBuildId_ conn = do
     Sql.query_ conn "SELECT id FROM build WHERE lifecycle = 'ACTIVE';" >>= \case
-        [] -> pure Nothing
-        [Only buildId] -> pure $ Just buildId
-        _ -> error "INTERNAL ERROR (please report): multiple builds active simultaneously"
-
-newBuild :: State -> IO BuildId
-newBuild State{..} = Sql.withTransaction conn $ do
-    Sql.query_ conn "SELECT id FROM build WHERE lifecycle = 'ACTIVE';" >>= \case
+        [Only buildId] -> pure buildId
         [] -> do
             Sql.execute_ conn "INSERT INTO build (lifecycle) VALUES ('ACTIVE');"
             Sql.query_ conn "SELECT last_insert_rowid();" >>= \case
-                [Only buildId] -> do
-                    Sql.execute_ conn "UPDATE file SET lifecycle = 'UNSCANNED';"
-                    pure buildId
+                [Only buildId] -> pure buildId
                 _ -> error "INTERNAL ERROR (please report): could not create new build"
         (_ :: [Only Int]) -> error "INTERNAL ERROR (please report): starting build when one is already active"
+
+loadBuild :: State -> IO BuildId
+loadBuild State{..} = Sql.withTransaction conn $ getBuildId_ conn
+
+finishBuild :: State -> IO ()
+finishBuild State{..} = Sql.withTransaction conn $ do
+    Sql.execute_ conn "UPDATE build SET lifecycle = 'DONE' WHERE lifecycle = 'ACTIVE';"
 
 
 registerSource :: State -> FilePath -> IO ()
@@ -101,7 +101,8 @@ register_ :: String -> State -> FilePath -> IO ()
 register_ filetype State{..} filename = Sql.withTransaction conn $ do
     Sql.query conn "SELECT count(*) FROM file WHERE filename = ?;" (Only filename) >>= \case
         -- FIXME what if a file is registered as two different types?
-            -- when state is unscanned, overwrite
+            -- when the last scan isn't this build, overwrite
+            -- when state is null, overwrite
             -- when state is running, error
             -- TODO what about other states?
         [Only (0 :: Int)] -> Sql.execute conn "INSERT INTO file (filename, filetype) VALUES (?, ?);" (filename, filetype)
@@ -109,16 +110,22 @@ register_ filetype State{..} filename = Sql.withTransaction conn $ do
         _ -> error "INTERNAL ERROR (please report): could not resgister file"
 
 markBuilding :: State -> FilePath -> IO ()
-markBuilding state@State{..} filename = Sql.withTransaction conn $ do
+markBuilding State{..} filename = Sql.withTransaction conn $ do
+    buildId <- getBuildId_ conn
     Sql.execute conn "UPDATE file SET lifecycle = 'BUILDING' WHERE filename = ?;" (Only filename)
+    Sql.execute conn "UPDATE file SET last_scan = ? WHERE filename = ?;" (Just buildId, filename)
 
 markUpToDate :: State -> FilePath -> IO ()
-markUpToDate state@State{..} filename = Sql.withTransaction conn $ do
+markUpToDate State{..} filename = Sql.withTransaction conn $ do
+    buildId <- getBuildId_ conn
     Sql.execute conn "UPDATE file SET lifecycle = 'UPTODATE' WHERE filename = ?;" (Only filename)
+    Sql.execute conn "UPDATE file SET last_scan = ? WHERE filename = ?;" (Just buildId, filename)
 
 markBuildFailed :: State -> FilePath -> IO ()
-markBuildFailed state@State{..} filename = Sql.withTransaction conn $ do
+markBuildFailed State{..} filename = Sql.withTransaction conn $ do
+    buildId <- getBuildId_ conn
     Sql.execute conn "UPDATE file SET lifecycle = 'BUILDFAILED' WHERE filename = ?;" (Only filename)
+    Sql.execute conn "UPDATE file SET last_scan = ? WHERE filename = ?;" (Just buildId, filename)
 
 
 clearDependencies :: State -> FilePath -> IO ()
