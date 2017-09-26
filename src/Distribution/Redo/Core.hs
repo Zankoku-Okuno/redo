@@ -7,8 +7,10 @@ module Distribution.Redo.Core
     , runDoScript
     ) where
 
+import qualified Data.ByteString.Lazy as LBS
 import Data.List
 import Control.Monad
+import Crypto.Hash.SHA1
 
 import System.Directory
 import System.Environment
@@ -26,12 +28,13 @@ import Distribution.Redo.State
 startup :: IO Project
 startup = do
     runningFrom <- getCurrentDirectory
-    project@Project{..} <- openProject runningFrom >>= \case
+    project <- openProject runningFrom
+    -- FIXME check if this is a child process; if so, use the project stored in the cache, otherwise create a project in the current directory
+    project <- case project of
         Nothing -> throw $ ProjectNotFound runningFrom
         Just it -> pure it
     -- build@Build{..} <- getBuild project
     pure project
-
 
 redo :: (Target -> IO Bool) -> Project -> FilePath -> IO Bool
 redo p project request = do
@@ -79,7 +82,9 @@ runDoScript project@Project{..} target@Target{..} =
                 state `addIfCreateDependency` (canonPath, dependency)
         body = do
             runDoScript_plain project target
-            state `markUpToDate` canonPath
+            time <- getModificationTime outPath
+            hash <- hashlazy <$> LBS.readFile outPath -- TODO not if the hash hasn't been requested
+            state `markUpToDate` (canonPath, Just time, Just hash)
         cleanAfterError = state `markBuildFailed` canonPath
         cleanup = case child of
             Just _ -> pure ()

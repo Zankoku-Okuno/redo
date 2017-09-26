@@ -24,7 +24,10 @@ library
     Distribution.Redo.State
   build-depends:
     base >=4.8 && <5,
+    base16-bytestring ==0.1.1.*,
+    bytestring ==0.10.*,
     ConfigFile ==1.*,
+    cryptohash-sha1 ==0.11.*,
     directory ==1.*,
     filepath ==1.*,
     Glob,
@@ -32,6 +35,7 @@ library
     process >=1.2.1 && <2,
     sqlite-simple ==0.4.*,
     temporary ==1.*,
+    time ==1.*,
     transformers ==0.5.*
   hs-source-dirs:      src
   default-language:    Haskell2010
@@ -46,7 +50,7 @@ library
 
 executable redo-init
   main-is: Init.hs
-  build-depends: eredo, base, ConfigFile, directory, filepath, Glob, mtl, process, sqlite-simple, temporary, transformers
+  build-depends: eredo, base, base16-bytestring, bytestring, ConfigFile, cryptohash-sha1, directory, filepath, Glob, mtl, process, sqlite-simple, temporary, time, transformers
   hs-source-dirs: src
   default-language: Haskell2010
   default-extensions: FlexibleContexts, LambdaCase, OverloadedStrings, RecordWildCards, ScopedTypeVariables, ViewPatterns
@@ -54,7 +58,7 @@ executable redo-init
 
 executable redo-always
   main-is: Always.hs
-  build-depends: eredo, base, ConfigFile, directory, filepath, Glob, mtl, process, sqlite-simple, temporary, transformers
+  build-depends: eredo, base, base16-bytestring, bytestring, ConfigFile, cryptohash-sha1, directory, filepath, Glob, mtl, process, sqlite-simple, temporary, time, transformers
   hs-source-dirs: src
   default-language: Haskell2010
   default-extensions: FlexibleContexts, LambdaCase, OverloadedStrings, RecordWildCards, ScopedTypeVariables, ViewPatterns

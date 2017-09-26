@@ -5,11 +5,15 @@ module Distribution.Redo.State
     , loadBuild, finishBuild
     , registerSource, registerTarget, registerScript
     , markBuilding, markUpToDate, markBuildFailed
+    , checkChangedByTime, checkChangedByHash
     , addIfCreateDependency, addIfChangeDependency, clearDependencies
     ) where
 
 import Prelude hiding (init)
 
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base16 as Hex
+import Data.Time.Clock
 import System.FilePath
 import System.Directory
 import Database.SQLite.Simple as Sql
@@ -45,16 +49,18 @@ initState topDir = do
             \                CHECK (lifecycle IN ('ACTIVE', 'DONE'))\n\
             \ -- TODO columns to cache the config for a build\n\
             \);"
+        -- FIXME allow for external files. e.g. if you depend on a system library (obviously not source) then you should rebuild when that lib changes
         Sql.execute_ conn
             "CREATE TABLE file (\n\
-            \    id        INTEGER PRIMARY KEY\n\
-            \  , filename  TEXT NOT NULL UNIQUE\n\
-            \  , filetype  TEXT NOT NULL\n\
-            \                CHECK (filetype IN ('SOURCE', 'TARGET', 'SCRIPT'))\n\
-            \  , lifecycle TEXT\n\
-            \                CHECK (lifecycle IN ('BUILDING', 'UPTODATE', 'BUILDFAILED'))\n\
-            \  , last_scan INTEGER REFERENCES build(id)\n\
-            \ -- TODO timestamp, hash of contents\n\
+            \    id         INTEGER PRIMARY KEY\n\
+            \  , filename   TEXT NOT NULL UNIQUE\n\
+            \  , filetype   TEXT NOT NULL\n\
+            \                 CHECK (filetype IN ('SOURCE', 'TARGET', 'SCRIPT'))\n\
+            \  , lifecycle  TEXT\n\
+            \                 CHECK (lifecycle IN ('BUILDING', 'UPTODATE', 'BUILDFAILED'))\n\
+            \  , last_scan  INTEGER REFERENCES build(id)\n\
+            \  , last_built TEXT\n\
+            \  , last_hash  TEXT\n\
             \);"
         Sql.execute_ conn "CREATE INDEX file_filename_idx ON file (filename);"
         Sql.execute_ conn
@@ -112,20 +118,48 @@ register_ filetype State{..} filename = Sql.withTransaction conn $ do
 markBuilding :: State -> FilePath -> IO ()
 markBuilding State{..} filename = Sql.withTransaction conn $ do
     buildId <- getBuildId_ conn
-    Sql.execute conn "UPDATE file SET lifecycle = 'BUILDING' WHERE filename = ?;" (Only filename)
-    Sql.execute conn "UPDATE file SET last_scan = ? WHERE filename = ?;" (Just buildId, filename)
+    let q = "UPDATE file SET\n\
+            \    lifecycle = 'BUILDING'\n\
+            \  , last_scan = ?\n\
+            \WHERE filename = ?;"
+    Sql.execute conn q (buildId, filename)
 
-markUpToDate :: State -> FilePath -> IO ()
-markUpToDate State{..} filename = Sql.withTransaction conn $ do
-    buildId <- getBuildId_ conn
-    Sql.execute conn "UPDATE file SET lifecycle = 'UPTODATE' WHERE filename = ?;" (Only filename)
-    Sql.execute conn "UPDATE file SET last_scan = ? WHERE filename = ?;" (Just buildId, filename)
+markUpToDate :: State -> (FilePath, Maybe UTCTime, Maybe BS.ByteString)-> IO ()
+markUpToDate State{..} (filename, time, hash) = Sql.withTransaction conn $ do
+    let q = "UPDATE file SET\n\
+            \    lifecycle = 'UPTODATE'\n\
+            \  , last_built = ?\n\
+            \  , last_hash = ?\n\
+            \WHERE filename = ?;"
+    Sql.execute conn q (time, Hex.encode <$> hash, filename)
 
 markBuildFailed :: State -> FilePath -> IO ()
 markBuildFailed State{..} filename = Sql.withTransaction conn $ do
-    buildId <- getBuildId_ conn
-    Sql.execute conn "UPDATE file SET lifecycle = 'BUILDFAILED' WHERE filename = ?;" (Only filename)
-    Sql.execute conn "UPDATE file SET last_scan = ? WHERE filename = ?;" (Just buildId, filename)
+    let q = "UPDATE file SET\n\
+            \    lifecycle = 'BUILDFAILED'\n\
+            \WHERE filename = ?;"
+    Sql.execute conn q (Only filename)
+
+
+checkChangedByTime :: State -> FilePath -> UTCTime -> IO Bool
+checkChangedByTime State{..} filepath checkTime = do
+    let q = "SELECT last_built FROM file WHERE filename = ?;"
+    Sql.query conn q (Only filepath) >>= \case
+        [] -> pure True
+        [Only Nothing] -> pure True
+        [Only (Just last_built)] -> pure $ last_built < checkTime
+        _ -> error "INTERNAL ERROR (please report): corrupted file change log"
+
+checkChangedByHash :: State -> FilePath -> BS.ByteString -> IO Bool
+checkChangedByHash State{..} filepath checkHash = do
+    let q = "SELECT last_hash FROM file WHERE filename = ?;"
+    Sql.query conn q (Only filepath) >>= \case
+        [] -> pure True
+        [Only Nothing] -> pure True
+        [Only (Just (Hex.decode -> (last_hash, undecoded)))]
+            | undecoded == "" -> pure $ last_hash == checkHash
+            | otherwise -> error "INTERNAL ERROR (please report): corrupted hash"
+        _ -> error "INTERNAL ERROR (please report): corrupted file change log"
 
 
 clearDependencies :: State -> FilePath -> IO ()
