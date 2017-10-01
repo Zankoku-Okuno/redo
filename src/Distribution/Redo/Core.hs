@@ -19,6 +19,7 @@ import System.FilePath
 import System.IO
 import System.IO.Temp
 import System.Process
+import System.Exit -- FIXME remove this when I'm done debugging this branch
 
 import Distribution.Redo.Basic
 import Distribution.Redo.Error
@@ -39,6 +40,7 @@ startup = do
 redo :: (Project -> Target -> IO Bool) -> Project -> FilePath -> IO Bool
 redo p project request = do
     target@Target{..} <- project `getTarget` request
+    exitSuccess -- TODO allow the rest of this as I refactor
     isUpToDate <- p project target -- TODO do I need to catch anything here?
     if isUpToDate
         then dontRunDoScript project target >> pure True
@@ -94,20 +96,20 @@ runDoScript :: Project -> Target -> IO ()
 runDoScript project@Project{..} target@Target{..} =
     let setup = do
             case scriptPath of
-                Just _  -> state `registerTarget` canonPath
-                Nothing -> state `registerSource` canonPath
+                Just _  -> state `register` (TargetFile, canonPath)
+                Nothing -> state `register` (SourceFile, canonPath)
             state `markBuilding` canonPath
             state `clearDependencies` canonPath
-            case child of
-                Just child -> state `addIfChangeDependency` (child, canonPath)
+            case parent of
+                Just parent -> state `addIfChangeDependency` (parent, canonPath)
                 Nothing    -> pure ()
             forM_ (makeRelative scriptDir <$> counterfactualScripts) $ \dependency -> do
-                state `registerScript` dependency
+                state `register` (ScriptFile, dependency)
                 state `addIfCreateDependency` (canonPath, dependency)
             case scriptPath of
                 Just (dependency, _) -> do
                     let canonDepPath = makeRelative scriptDir dependency
-                    state `registerScript` canonDepPath
+                    state `register` (ScriptFile, canonDepPath)
                     state `addIfChangeDependency` (canonPath, canonDepPath)
                     -- FIXME don't redo these if they're already up-to-date
                     time <- getModificationTime dependency
@@ -120,14 +122,14 @@ runDoScript project@Project{..} target@Target{..} =
             hash <- hashlazy <$> LBS.readFile outPath -- TODO not if the hash hasn't been requested
             state `markUpToDate` (canonPath, Just time, Just hash)
         cleanAfterError = state `markBuildFailed` canonPath
-        cleanup = case child of
+        cleanup = case parent of
             Just _ -> pure ()
             Nothing -> finishBuild state
     in setup >> (body `onException` cleanAfterError) `finally` cleanup
 
 dontRunDoScript :: Project -> Target -> IO ()
-dontRunDoScript Project{..} Target{..} = case child of
-    Just child -> state `addIfChangeDependency` (child, canonPath)
+dontRunDoScript Project{..} Target{..} = case parent of
+    Just parent -> state `addIfChangeDependency` (parent, canonPath)
     Nothing -> finishBuild state
 
 runDoScript_plain :: Project -> Target -> IO ()

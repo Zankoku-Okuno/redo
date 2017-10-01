@@ -6,7 +6,6 @@ module Distribution.Redo.Basic
 
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Except
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 
@@ -14,7 +13,7 @@ import System.Environment
 import System.FilePath
 import System.Directory
 
-import Data.ConfigFile
+import Data.Maybe
 
 import Distribution.Redo.Error
 import Distribution.Redo.State
@@ -42,11 +41,8 @@ data Project = Project
     , srcDir :: FilePath
     , buildDir :: FilePath
     , scriptDir :: FilePath
-
     , doScriptLang :: Maybe String
     , useNewArgs :: Bool
-    -- TODO more configuration options
-    -- where should we send logs?
     }
     deriving (Show)
 
@@ -64,46 +60,15 @@ openProject runningFrom = runMaybeT $ do
         else                        getProjectDirectory nextDir
     loadProject :: FilePath -> IO Project
     loadProject topDir = do
-        -- TODO is the database correctly formed?
-        state <- loadState topDir
-        
-        let confPath = topDir </> ".redo" </> "redo.conf"
-        confExists <- doesFileExist confPath
-        unless confExists $ do
-            writeFile confPath ""
-        mkProject <- runExceptT $ do
-            let getDef :: (MonadError CPError m, Get_C a) => ConfigParser -> SectionSpec -> OptionSpec -> a -> m a
-                getDef cp s o d = if has_option cp s o then get cp s o else return d -- TODO check when this makes it into the ConfigFile source
-                emptyToNothing "" = Nothing
-                emptyToNothing x = Just x
-            config <- join $ liftIO $ readfile emptyCP confPath
-            
-            srcDir    <- (topDir </>) <$> getDef config "directories" "src"    ""
-            buildDir  <- (topDir </>) <$> getDef config "directories" "out"    ""
-            scriptDir <- (topDir </>) <$> getDef config "directories" "script" ""
+        isChild <- isJust <$> lookupEnv "REDO__TARGET"
+        state <- (if isChild then loadBuild else startBuild) topDir
+        let Config{..} = config state
+        pure Project{..}
 
-            doScriptLang <- emptyToNothing <$> getDef config "script" "language" ""
-            useNewArgs <- getDef config "script" "newArgs" False
-
-            return $ \state -> Project {..}
-        pure $ case mkProject of
-            Right mkProject -> mkProject state
-            Left err -> error "INTERNAL ERROR (please report): could not open or create config file"
-
-data Build = Build {
-      buildId :: BuildId
-    -- TODO build options &c
-    }
-    deriving (Show)
-
-getBuild :: Project -> IO Build
-getBuild Project{..} = do
-    buildId <- loadBuild state
-    pure Build{..}
 
 data Target = Target
     { canonPath :: FilePath
-    , child :: Maybe FilePath -- NOT called child b/c this target is reponsbile for creating stuff for the child
+    , parent :: Maybe FilePath
     , srcPath :: FilePath
     , outPath :: FilePath
     , scriptPath :: Maybe ScriptPath
@@ -117,9 +82,9 @@ type Extension = String
 getTarget :: Project -> FilePath -> IO Target
 getTarget Project{..} request = do
     inSrcDir <- makeRelativeTo srcDir request
-    child <- lookupEnv "REDO__TARGET"
-    let canonPath = case child of
-            (Just (takeDirectory' -> childDir)) -> childDir </> request
+    parent <- lookupEnv "REDO__TARGET"
+    let canonPath = case parent of
+            (Just (takeDirectory' -> parentDir)) -> parentDir </> request
             Nothing -> case inSrcDir of
                 Just filepath -> filepath
                 Nothing -> request
