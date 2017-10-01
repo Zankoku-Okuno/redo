@@ -5,7 +5,7 @@ module Distribution.Redo.State
     , loadBuild, finishBuild
     , registerSource, registerTarget, registerScript
     , markBuilding, markUpToDate, markBuildFailed
-    , checkChangedByTime, checkChangedByHash
+    , allDependencies, checkChangedByTime, checkChangedByHash
     , addIfCreateDependency, addIfChangeDependency, clearDependencies
     ) where
 
@@ -141,25 +141,47 @@ markBuildFailed State{..} filename = Sql.withTransaction conn $ do
     Sql.execute conn q (Only filename)
 
 
-checkChangedByTime :: State -> FilePath -> UTCTime -> IO Bool
+allDependencies :: State -> FilePath -> IO [(String, FilePath)] -- FIXME this string should be an enum
+allDependencies State{..} canonPath = do
+    let q = "WITH RECURSIVE deps(id) AS\n\
+            \    (   SELECT id FROM file WHERE filename = ?\n\
+            \    UNION\n\
+            \        SELECT depends_on\n\
+            \        FROM dependency, deps\n\
+            \        WHERE child = deps.id\n\
+            \    )\n\
+            \SELECT filetype, filename FROM file WHERE id IN deps;"
+    Sql.query conn q (Only canonPath)
+
+
+checkChangedByTime :: State -> FilePath -> Maybe UTCTime -> IO Bool
 checkChangedByTime State{..} filepath checkTime = do
     let q = "SELECT last_built FROM file WHERE filename = ?;"
-    Sql.query conn q (Only filepath) >>= \case
-        [] -> pure True
-        [Only Nothing] -> pure True
-        [Only (Just last_built)] -> pure $ last_built < checkTime
+    storedTime <- Sql.query conn q (Only filepath) >>= pure . \case
+        [] -> Nothing
+        [Only Nothing] -> Nothing
+        [Only last_built] -> last_built
         _ -> error "INTERNAL ERROR (please report): corrupted file change log"
+    pure $ case (checkTime, storedTime) of
+        (Just checkTime, Just storedTime) -> storedTime < checkTime
+        (Nothing, Nothing) -> False
+        _ -> True
 
-checkChangedByHash :: State -> FilePath -> BS.ByteString -> IO Bool
+
+checkChangedByHash :: State -> FilePath -> Maybe BS.ByteString -> IO Bool
 checkChangedByHash State{..} filepath checkHash = do
     let q = "SELECT last_hash FROM file WHERE filename = ?;"
-    Sql.query conn q (Only filepath) >>= \case
-        [] -> pure True
-        [Only Nothing] -> pure True
+    storedHash <- Sql.query conn q (Only filepath) >>= pure . \case
+        [] -> Nothing
+        [Only Nothing] -> Nothing
         [Only (Just (Hex.decode -> (last_hash, undecoded)))]
-            | undecoded == "" -> pure $ last_hash == checkHash
+            | undecoded == "" -> Just last_hash
             | otherwise -> error "INTERNAL ERROR (please report): corrupted hash"
         _ -> error "INTERNAL ERROR (please report): corrupted file change log"
+    pure $ case (checkHash, storedHash) of
+        (Just checkHash, Just storedHash) -> storedHash /= checkHash
+        (Nothing, Nothing) -> False
+        _ -> True
 
 
 clearDependencies :: State -> FilePath -> IO ()

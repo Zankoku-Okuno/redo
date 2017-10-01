@@ -1,7 +1,7 @@
 module Distribution.Redo.Core
     ( module Distribution.Redo.Basic
     , RedoException(..)
-    , always
+    , always, ifchange
 
     , startup, redo, stdCatch
     , runDoScript
@@ -36,17 +36,41 @@ startup = do
     -- build@Build{..} <- getBuild project
     pure project
 
-redo :: (Target -> IO Bool) -> Project -> FilePath -> IO Bool
+redo :: (Project -> Target -> IO Bool) -> Project -> FilePath -> IO Bool
 redo p project request = do
     target@Target{..} <- project `getTarget` request
-    isUpToDate <- p target -- TODO do I need to catch anything here?
+    isUpToDate <- p project target -- TODO do I need to catch anything here?
     if isUpToDate
-        then pure True
+        then dontRunDoScript project target >> pure True
         else (runDoScript project target >> pure True) `catch` (\exn -> stdCatch exn >> pure False)
 
-always :: Target -> IO Bool
-always _ = pure False
--- TODO ifchange, ifcreate
+always :: Project -> Target -> IO Bool
+always _ _ = pure False
+
+ifchange :: Project -> Target -> IO Bool
+ifchange Project{..} Target{..} = do
+    deps <- state `allDependencies` canonPath
+    hPutStrLn stderr $ "INFO: " ++ show deps
+    if null deps -- FIXME shouldn't deps at least include the target file?
+    then pure False
+    else do
+        upToDates <- forM deps $ \(filetype, filename) -> do
+            let filepath = case filetype of
+                            "SOURCE" -> srcDir </> filename
+                            "TARGET" -> buildDir </> filename
+                            "SCRIPT" -> scriptDir </> filename
+            (time, hash) <- doesFileExist filepath >>= \case
+                False -> pure (Nothing, Nothing)
+                True -> do
+                    time <- getModificationTime filepath
+                    hash <- hashlazy <$> LBS.readFile filepath -- TODO not if the hash hasn't been requested
+                    pure (Just time, Just hash)
+            isChangedByTime <- checkChangedByTime state filename time
+            isChangedByHash <- checkChangedByHash state filename hash
+            pure . not $ isChangedByTime || isChangedByHash
+        hPutStrLn stderr $ "INFO: " ++ show upToDates
+        pure $ and upToDates
+-- TODO ifcreate
 
 stdCatch :: RedoException -> IO ()
 -- TODO make sure all the `RedoException`s are handled
@@ -100,6 +124,11 @@ runDoScript project@Project{..} target@Target{..} =
             Just _ -> pure ()
             Nothing -> finishBuild state
     in setup >> (body `onException` cleanAfterError) `finally` cleanup
+
+dontRunDoScript :: Project -> Target -> IO ()
+dontRunDoScript Project{..} Target{..} = case child of
+    Just child -> state `addIfChangeDependency` (child, canonPath)
+    Nothing -> finishBuild state
 
 runDoScript_plain :: Project -> Target -> IO ()
 runDoScript_plain Project{..} Target{..} = case scriptPath of
