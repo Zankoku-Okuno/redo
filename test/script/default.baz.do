@@ -1,5 +1,7 @@
 echo "RUNNING SCRIPT"
 
+echo $PWD
+echo $REDO__TARGET
 echo $1
 echo $2
 echo $3

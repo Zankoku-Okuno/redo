@@ -80,6 +80,16 @@ runDoScript project@Project{..} target@Target{..} =
             forM_ (makeRelative scriptDir <$> counterfactualScripts) $ \dependency -> do
                 state `registerScript` dependency
                 state `addIfCreateDependency` (canonPath, dependency)
+            case scriptPath of
+                Just (dependency, _) -> do
+                    let canonDepPath = makeRelative scriptDir dependency
+                    state `registerScript` canonDepPath
+                    state `addIfChangeDependency` (canonPath, canonDepPath)
+                    -- FIXME don't redo these if they're already up-to-date
+                    time <- getModificationTime dependency
+                    hash <- hashlazy <$> LBS.readFile dependency -- TODO not if the hash hasn't been requested
+                    state `markUpToDate` (canonDepPath, Just time, Just hash)
+                Nothing -> pure ()
         body = do
             runDoScript_plain project target
             time <- getModificationTime outPath
@@ -98,7 +108,7 @@ runDoScript_plain Project{..} Target{..} = case scriptPath of
         withOutputs $ \tmpPath (pipePath, pipeHandle) -> do
             let moreEnv = [("REDO__TARGET", canonPath)] -- TODO do I need any more env vars?
             oldEnv <- getEnvironment
-            let newEnv = moreEnv ++ oldEnv
+            let newEnv = oldEnv ++ moreEnv -- FIXME I thought the other way around would work; I need to manipulate the env like an env instead of an alist
                 args = [outPath, baseName, tmpPath] -- TODO implement an option for new-style arguments to the script
                 cmd = case doScriptLang of
                     Nothing -> proc scriptPath args

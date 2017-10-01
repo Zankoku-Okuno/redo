@@ -128,16 +128,13 @@ getTarget Project{..} request = do
     filepath <- canonicalizePath (srcDir </> canonPath)
     makeRelativeTo srcDir filepath >>= \case
         Nothing -> throw $ TargetNotFound canonPath
-        Just canonPath -> loadTarget canonPath
+        Just canonPath -> do
+            let srcPath = srcDir </> canonPath
+                outPath = buildDir </> canonPath
+                scriptPaths = candidateScripts scriptDir canonPath
+            (scriptPath, counterfactualScripts) <- loadScriptPath (srcPath, scriptPaths)
+            pure Target{..}
     where
-    loadTarget :: FilePath -> IO Target
-    loadTarget canonPath = do
-        child <- lookup "REDO__TARGET" <$> getEnvironment
-        let srcPath = srcDir </> canonPath
-            outPath = buildDir </> canonPath
-            scriptPaths = candidateScripts scriptDir canonPath
-        (scriptPath, counterfactualScripts) <- loadScriptPath (srcPath, scriptPaths)
-        pure Target{..}
     candidateScripts :: FilePath -> FilePath -> [(FilePath, (BaseName, Extension))]
     candidateScripts scriptDir canonPath = directScript : defaultScripts
         where
