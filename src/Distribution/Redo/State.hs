@@ -12,6 +12,8 @@ module Distribution.Redo.State
 
 import Prelude hiding (init)
 
+import Crypto.Hash.SHA1
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as Hex
 import Data.Time.Clock
@@ -43,7 +45,7 @@ startBuild topDir = do
     let dbfile = topDir </> ".redo" </> "redo.sqlite"
     conn <- Sql.open dbfile
     buildId <- Sql.withTransaction conn $ do
-        Sql.query_ conn "SELECT (id) FROM build WHERE lifecycle = 'ACTIVE';" >>= \case
+        Sql.query_ conn "SELECT id FROM build WHERE lifecycle = 'ACTIVE';" >>= \case
             [] -> do
                 let q = "INSERT INTO build (lifecycle, srcDir, buildDir, scriptDir, doScriptLang, useNewArgs)\n\
                         \VALUES ('ACTIVE', ?, ?, ?, ?, ?);"
@@ -116,6 +118,12 @@ loadConfigFile topDir = do
 data FileType = SourceFile | TargetFile | ScriptFile deriving (Read, Show)
 data Lifecycle = OutOfDate | Building | Failed |  UpToDate deriving (Read, Show)
 
+resolveCanonPath :: State -> (FileType, FilePath) -> FilePath
+resolveCanonPath State{config = Config{..}} (SourceFile, canonPath) = srcDir </> canonPath
+resolveCanonPath State{config = Config{..}} (TargetFile, canonPath) = buildDir </> canonPath
+resolveCanonPath State{config = Config{..}} (ScriptFile, canonPath) = scriptDir </> canonPath
+
+
 initState :: FilePath -> IO ()
 initState topDir = do
     let redoDir = topDir </> ".redo"
@@ -157,6 +165,22 @@ initState topDir = do
             \);"
 
 ------------------------------------
+
+
+scan :: State -> FilePath -> IO (Maybe BS.ByteString)
+scan state@State{..} canonPath = do
+    let q = "SELECT filetype FROM file WHERE canonPath = ?;"
+    Sql.query conn q (Only canonPath) >>= \case
+        [] -> pure Nothing
+        [Only (read -> filetype)] -> do
+            let filepath = state `resolveCanonPath` (filetype, filepath)
+            doesFileExist filepath >>= \case
+                True -> Just . hashlazy <$> LBS.readFile filepath
+                False -> pure Nothing
+        _ -> error "INTERNAL ERROR (please report): cannot load filepath"
+
+
+
 
 
 
