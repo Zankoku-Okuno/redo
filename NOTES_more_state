@@ -1,0 +1,57 @@
+I'm really lost on how to keep the build coordination manageable and the db up-to-date
+
+
+TODO Perhaps I should have the State module do the timestamps and hashes
+
+
+
+How I think it should work
+--------------------------
+
+Is there any information on me?
+    No: scan myself & mark me OUTOFDATE
+Mark myself as a dependency for the parent
+Am I and all of my dependencies up to date (w.r.t. the test)?
+    No: rebuild myself
+
+
+What does it mean for a file to be up-to-date?
+----------------------------------------------
+
+If my lifecycle is 'OUTOFDATE' or 'FAILED', I'm out of date.
+If my lifecycle is 'BUILDING', then I need to wait.
+If the last scan on me was earlier than this build, I need to be scanned.
+Is the just-scanned hash different from my stored hash?
+    Yes: store new hash; mark me OUTOFDATE
+    No: mark me UPTODATE
+
+
+What does it mean to be scanned?
+--------------------------------
+
+Do I (the file) exist?
+    No: hash is NULL
+    Yes: hash me
+
+NOTE: I should probably just use hashes everywhere & ignore timestamps until I feel safe optimizing.
+
+
+What does it mean to be rebuilt?
+--------------------------------
+
+Mark myself as 'BUILDING'.
+What kind of file am I?
+    source: copy source to build dir
+    target: run script, move tmpfile into build dir
+    script: no action needed
+Was it successful?
+    Yes: scan myself, store the hash, and mark myself as UPTODATE
+    No: Mark myself as FAILED
+
+
+
+
+How it really works
+-------------------
+
+TODO
