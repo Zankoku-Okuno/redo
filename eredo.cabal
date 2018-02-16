@@ -44,3 +44,14 @@ library
     ScopedTypeVariables,
     ViewPatterns
   other-extensions: DeriveDataTypeable
+
+test-suite test-project-finding
+  type: exitcode-stdio-1.0
+  main-is: ProjectFinding.hs
+  other-modules: TestUtil
+  hs-source-dirs: test
+  build-depends: base
+  default-extensions:
+    DoAndIfThenElse,
+    OverloadedStrings,
+    RecordWildCards

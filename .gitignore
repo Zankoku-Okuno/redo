@@ -1,8 +1,5 @@
 dist/
 .hsenv/
 .stack-work/
-.redo/
 .cabal-sandbox/
 cabal.sandbox.config
-test/.redo/redo.sqlite
-test/build/
