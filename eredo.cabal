@@ -59,4 +59,5 @@ test-suite test-project-finding
     DoAndIfThenElse,
     MultiWayIf,
     OverloadedStrings,
-    RecordWildCards
+    RecordWildCards,
+    ViewPatterns

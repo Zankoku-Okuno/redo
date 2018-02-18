@@ -33,7 +33,7 @@ runTests suiteName tests = do
     where
     go :: Test -> IO (String, TestResult)
     go (Test {..}) = do
-        r <- run `catch` \(SomeException exn) -> pure $ Error (show exn)
+        r <- run `catchAny` \exn -> pure $ Error (show exn)
         pure (name, r)
     report (name, Pass) = concat ["Success: ", name]
     report (name, Fail msg) = concat ["FAIL: ", name, ": ", msg]
@@ -44,3 +44,5 @@ runTests suiteName tests = do
     isError _ = False
 
 putErrLn = hPutStrLn stderr
+catchAny :: IO a -> (SomeException -> IO a) -> IO a
+catchAny = catch
