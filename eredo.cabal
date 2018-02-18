@@ -50,8 +50,13 @@ test-suite test-project-finding
   main-is: ProjectFinding.hs
   other-modules: TestUtil
   hs-source-dirs: test
-  build-depends: base
+  build-depends:
+    base,
+    eredo,
+    directory ==1.*,
+    filepath ==1.*
   default-extensions:
     DoAndIfThenElse,
+    MultiWayIf,
     OverloadedStrings,
     RecordWildCards
